@@ -1,0 +1,65 @@
+
+---------------------------------------------------------------------
+xtract is a command-line tool for running automated tractography.
+
+Written by Saad Jbabdi & Stamatios Sotiropoulos
+(based on the autoPtx tool by Marius de Groot)
+
+---------------------------------------------------------------------
+Citations:
+	
+de Groot, Marius; Vernooij, Meike W.; Klein, Stefan; Ikram, M. Arfan; Vos, Frans M.; Smith, Stephen M.; Niessen, Wiro J.; Andersson, Jesper L. R.(2013). Improving alignment in Tract-based spatial statistics: Evaluation and optimization of image registration. NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
+
+Warrington et al. in prep
+
+---------------------------------------------------------------------
+
+Usage: 
+    xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
+
+    Compulsory arguments:
+
+       -bpx <folder>                     Path to bedpostx folder
+       -out <folder>                     Path to output folder
+       
+       And EITHER:
+       -str <file>                       Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+       -p   <folder>                     Protocols folder (all masks in same standard space)
+
+       Or:
+       -species <SPECIES>                One of HUMAN or MACAQUE
+
+    Optional arguments:
+
+       -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard}) 
+       -gpu                              Use GPU version 
+       -native                           Run tractography in native (diffusion) space
+       -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+
+---------------------------------------------------------------------
+
+Adding your own tracts:
+
+Suppose you want to create an automated protocol for a tract called 'mytrack'.  
+
+First you need to create a folder called 'protocols/mytrack' within the protocols folder. 
+
+Then create the following image files (with this exact naming) and copy them into protocols/mytrack:
+
+[Compulsory]:
+- seed.nii.gz : a seed mask in MNI152 space
+
+[Optional]:
+- stop.nii.gz    : a stop mask if required
+- exclude.nii.gz : an exclusion mask if required
+- ONE of the following:
+  - target.nii.gz  :  a single target mask  
+  - target1.nii.gz, target2.nii.gz, etc. : a number of targets, in which case streamlines will be kept if they cross ALL of them
+- invert (empty file to indicate that a seed->target and target->seed run will be added and combined)
+  if such an option is required a single "target.nii.gz" file is also expected 
+
+
+
+

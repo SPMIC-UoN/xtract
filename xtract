@@ -1,0 +1,319 @@
+#!/bin/bash
+
+#   Copyright (C) 2019 University of Oxford
+#
+#   SHCOPYRIGHT
+
+# Written by Saad Jbabdi & Stam Sotiropoulos (based on Marius de Groot autoPtx code)
+# Protocols created by Rogier Mars et al.
+
+
+#Location of CUDA binaries and libraries
+#LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/opt/cuda-7.5/lib
+#export LD_LIBRARY_PATH
+ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
+
+
+
+Usage() {
+    cat << EOF
+
+Usage: 
+    xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
+
+    Compulsory arguments:
+
+       -bpx <folder>                     Path to bedpostx folder
+       -out <folder>                     Path to output folder
+       
+       And EITHER:
+       -str <file>                       Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+       -p   <folder>                     Protocols folder (all masks in same standard space)
+
+       Or:
+       -species <SPECIES>                One of HUMAN or MACAQUE
+
+    Optional arguments:
+
+       -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard}) 
+       -gpu                              Use GPU version 
+       -native                           Run tractography in native (diffusion) space
+       -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+
+EOF
+    exit 1
+}
+
+[ "$1" = "" ] && Usage
+
+
+# Set default options
+bpx=""
+out=""
+str=""
+p=""
+std2diff=""
+stdref="$FSLDIR/data/standard/MNI152_T1_1mm"
+gpu=0
+nat=0
+spec=""
+res=-1
+
+# Parse command-line arguments
+while [ ! -z "$1" ];do
+    case "$1" in
+	-bpx) bpx=$2;shift;;
+	-out) out=$2;shift;;
+	-str) str=$2;shift;;
+	-p)   p=$2;shift;;
+	-species) spec={$2^^};shift;;  # converts to uppercase
+	-stdwarp) std2diff=$2;diff2std=$3;shift;shift;;
+	-gpu) gpu=1;;
+	-native) nat=1;;
+	-res) res=$2;shift;;
+	*) echo "Unknown option '$1'";exit 1;;
+    esac
+    shift
+done
+# Default warps
+if [ "$std2diff" == "" ];then
+    std2diff=$bpx/xfms/standard2diff
+    diff2std=$bpx/xfms/diff2standard
+    if [ `$FSLDIR/bin/imtest $std2diff` -eq 0 ];then
+	echo "Image $std2diff not found."
+	exit 1
+    fi
+    if [ `$FSLDIR/bin/imtest $diff2std` -eq 0 ];then
+	echo "Image $diff2std not found."
+	exit 1
+    fi
+fi
+
+
+
+# GPU stuff
+if [ $gpu -eq 0 ];then
+    ptxbin=$FSLDIR/bin/probtrackx2
+else
+    # Temp location of CUDA code
+    ptxbin=${ptxbin_gpu}
+fi
+
+
+# Check compulsory arguments
+errflag=0
+if [ "$bpx" == "" ];then
+    echo "Must set compulsory argument '-bpx'"
+    errflag=1
+elif [ ! -d $bpx ];then
+    echo "Bedpostx folder $bpx not found"
+    errflag=1
+fi
+if [ "$out" == "" ];then
+    echo "Must set compulsory argument '-out'"
+    errflag=1
+fi
+
+if [ "$xspec" == "" ];then
+    if [ "$str" == "" ];then
+	echo "Must set compulsory argument '-str'"
+	errflag=1
+    elif [ ! -f $str ];then
+	echo "Structure file $str not found"
+	errflag=1
+    fi
+    if [ "$p" == "" ];then
+	echo "Must set compulsory argument '-p'"
+	errflag=1
+    elif [ ! -d $p ];then
+	echo "Protocol folder $p not found"
+	errflag=1
+    fi
+else
+    if [ "$spec" == "HUMAN" ];then
+	p=$FSLDIR/etc/fsl_autoPtx/protocols/Human
+	str=$FSLDIR/etc/fsl_autoPtx/protocols/structList
+    elif [ "$spec" == "MACAQUE" ];then
+	p=$FSLDIR/etc/fsl_autoPtx/protocols/Macaque
+	str=$FSLDIR/etc/fsl_autoPtx/protocols/structList
+    else
+	echo "Species must be one of HUMAN or MACAQUE"
+	errflag=1
+    fi
+fi
+
+if [ "$errflag" -eq 1 ];then
+    echo ""
+    echo "Exit without doing anything.."
+    exit 1
+fi
+
+# Create output folders
+mkdir -p $out
+mkdir -p $out/logs
+mkdir -p $out/tracts
+
+# Set common ptx options
+opts=" -s $bpx/merged -m $bpx/nodif_brain_mask -V 1"
+opts=" $opts --loopcheck --forcedir --opd --ompl --seedref=$stdref --sampvox=1 --randfib=1 "
+
+if [ "$nat" -eq 0 ];then
+    opts="$opts --xfm=$std2diff --invxfm=$diff2std "
+fi
+
+# Loop over structures
+commands=$out/commands.txt
+rm -rf $commands
+echo "Preparing submission script..."
+while read structstring; do
+    struct=`echo $structstring | awk '{print $1}'`
+    # skip empty lines and lines that start with '#'
+    if [ "${struct:0:1}" == "#" ];then
+	# do nothing
+	foo=0
+	#echo "----- Skip line $structstring -----"
+    elif [ "$struct" == "" ];then
+	# do nothing
+	foo=0
+	#echo "----- Skip empty line -----"
+    else
+	#echo "autoTrack $struct"
+	mkdir -p $out/tracts/$struct
+
+	nseed=`echo $structstring | awk '{print $2}'`
+	if [ "$nseed" == "" ];then
+	    nseed=1
+	fi
+	nseed=$(echo "scale=0; 1000 * ${nseed} / 1"|bc)
+	
+	maskdir=$p/$struct
+
+	#  DEALING WITH RESAMPLING -- 
+	# Pick space to run tractography in (diffusion or standard)	
+	if [ "$nat" -eq 1 ];then
+	    echo " -- transforming masks into native space"	    
+	    mkdir -p $out/masks/$struct
+	    for m in seed stop exclude;do
+		if [ `$FSLDIR/bin/imtest $maskdir/$m` -eq 1 ];then
+		    $FSLDIR/bin/applywarp -i $maskdir/$m -o $out/masks/$struct/$m -w $std2diff -r $bpx/nodif_brain_mask -d float
+		    $FSLDIR/bin/fslmaths $out/masks/$struct/$m -thr 0.1 -bin $out/masks/$struct/$m -odt char
+		fi
+		eval "${m}=$out/masks/$struct/$m"
+	    done	    
+	else
+	    for m in seed stop exclude;do		
+		if [ $res -gt 0 ];then
+		    # Resample at a different resolution
+		    mkdir -p $out/masks/$struct
+		    if [ `$FSLDIR/bin/imtest $maskdir/$m` -eq 1 ];then
+			$FSLDIR/bin/flirt -in $maskdir/$m -out $out/masks/$struct/$m -applyisoxfm $res -ref $maskdir/$m 
+			$FSLDIR/bin/fslmaths $out/masks/$struct/$m -thr 0.1 -bin $out/masks/$struct/$m -odt char
+		    fi		
+		    eval "${m}=$out/masks/$struct/$m"		    
+		else
+		    eval "${m}=$maskdir/$m"
+		fi
+	    done
+	fi	
+
+	# Deal with targets (in cases where there may be more than one)
+	targets=`imglob $maskdir/target*`
+	targetfile=$out/tracts/$struct/targets.txt
+	if [ "$nat" -eq 1 ];then
+	    for tfile in $targets;do
+		t=`basename $tfile`
+		$FSLDIR/bin/applywarp -i $tfile -o $out/masks/$struct/$t -w $std2diff -r $bpx/nodif_brain_mask -d float
+		$FSLDIR/bin/fslmaths $out/masks/$struct/$t -thr 0.1 -bin $out/masks/$struct/$t -odt char
+	    done
+	    echo $out/masks/$struct/target* > $targetfile
+	else
+	    if [ $res -gt 0 ];then
+		# Resample at a different resolution
+		for tfile in $targets;do
+		    t=`basename $tfile`
+		    $FSLDIR/bin/flirt -in $tfile -out $out/masks/$struct/$t -applyisoxfm $res -ref $tfile
+		    $FSLDIR/bin/fslmaths $out/masks/$struct/$t -thr 0.1 -bin $out/masks/$struct/$t -odt char
+		done
+		echo $out/masks/$struct/target* > $targetfile
+	    else
+		echo $targets > $targetfile
+	    fi
+	fi
+
+	# Get generic options
+	o=$opts
+	
+        # Add inclusion/exclusion masks
+	if [ `$FSLDIR/bin/imtest $stop` -eq 1 ];then
+	    o="$o --stop=$stop"
+	fi
+	if [ `$FSLDIR/bin/imtest $exclude` -eq 1 ];then
+	    o="$o --avoid=$exclude"
+	fi
+
+	# Add seed/target
+	o1="$o --nsamples=$nseed -x $seed "
+	
+	if [ "x${targets}" != "x" ];then #Add waypoints if there are any
+       	    o1=" $o1 --waypoints=$targetfile "
+	fi
+
+        # Outputs
+	o1=" $o1 -o density --dir=$out/tracts/$struct"
+
+	
+	# Does the protocol define a second run with inverted seed / target masks? 
+	if [ -e $maskdir/invert ]; then  #Invert-mode
+	    if 	[ `$FSLDIR/bin/imtest $maskdir/target.nii.gz` -eq 1 ];then 	# Check if a target.nii.gz image exists when invert option has been selected.
+		mkdir -p $out/tracts/$struct/tractsInv
+		if [ `$FSLDIR/bin/imtest $out/masks/$struct/target.nii.gz` -eq 1 ]; then
+		    target=$out/masks/$struct/target
+		else
+		    target=$maskdir/target
+		fi
+		o2="$o --nsamples=$nseed -x ${target} --waypoints=$seed -o density --dir=$out/tracts/$struct/tractsInv"
+
+		# merge runs for forward and inverted tractography runs and then normalise (create commands but don't execute)
+		mergecmd="$FSLDIR/bin/fslmaths $out/tracts/$struct/density -add $out/tracts/$struct/tractsInv/density $out/tracts/$struct/sum_density"
+
+		#Add waypoints (create command but don't execute)
+		addcmd="echo \"scale=5; \`cat $out/tracts/$struct/waytotal\` + \`cat $out/tracts/$struct/tractsInv/waytotal\` \"|bc > $out/tracts/$struct/sum_waytotal" 
+		
+		# Waypoint normalisation (create command but don't execute)
+		normcmd="$FSLDIR/bin/fslmaths $out/tracts/$struct/sum_density -div \`cat $out/tracts/$struct/sum_waytotal\` $out/tracts/$struct/densityNorm"
+
+		# Append to command list
+		echo "$ptxbin $o1; $ptxbin $o2; $mergecmd; $addcmd; $normcmd" >> $commands
+	    else
+		echo "Invert Option selected, but more than one target defined! A 'target.nii.gz' is expected. Exiting now"
+		exit 1
+	    fi
+	else  	#No invert-mode
+	    # Waypoint normalisation (create command but don't execute)
+	    normcmd="$FSLDIR/bin/fslmaths $out/tracts/$struct/density -div \`cat $out/tracts/$struct/waytotal\` $out/tracts/$struct/densityNorm"
+
+	    # Append to command list
+	    echo "$ptxbin $o1; $normcmd" >> $commands
+	fi
+    fi
+
+done < $str
+
+chmod +x $commands
+
+if [ "x$SGE_ROOT" != "x" ]; then  # Submit all commands to run in parallel on the cluster
+    # One job per tract for a CPU cluster, one job for all tracts for a GPU cluster.
+    if [ $gpu -eq 0 ];then
+	fsl_sub -q long.q -l $out/logs -N fsl_autoPtx -t $commands	
+    else
+	fsl_sub -q $FSLGECUDAQ -l $out/logs -N fsl_autoPtx $commands
+	#Submission call for the WashU GPU cluster    
+	#qsub -l nodes=1:ppn=1:gpus=1:K20x,walltime=04:00:00,mem=8gb -N autoPtx_GPU -e $out/logs/GPUerrofile -o $out/logs/GPUoutfile $commands
+    fi
+else   # If no SGE, run locally
+    sh $commands
+fi
+
+#EOF
