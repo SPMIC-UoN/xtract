@@ -2,15 +2,28 @@
 ---------------------------------------------------------------------
 xtract is a command-line tool for running automated tractography.
 
-Written by Saad Jbabdi & Stamatios Sotiropoulos
+The script was written by Saad Jbabdi & Stamatios Sotiropoulos
 (based on the autoPtx tool by Marius de Groot)
+
+The tractography protocols were created by:
+
+Rogier Mars & Stamatios Sotiropoulos
+
+with help from:
+Saad Jbabdi, Kathryn Bryant, Shaun Warrington, Marina Charquero-Ballester, Gwenaelle Douaud
+
 
 ---------------------------------------------------------------------
 Citations:
-	
-de Groot, Marius; Vernooij, Meike W.; Klein, Stefan; Ikram, M. Arfan; Vos, Frans M.; Smith, Stephen M.; Niessen, Wiro J.; Andersson, Jesper L. R.(2013). Improving alignment in Tract-based spatial statistics: Evaluation and optimization of image registration. NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 
-Warrington et al. in prep
+
+Warrington S, Bryant K, Charquero-Ballester M, Douaud G, Jbabdi S*, Mars R*, Sotiropoulos SN* (in prep.)
+Standardised protocols for automated tractography and connectivity blueprints in the human and macaque brain.
+
+de Groot M; Vernooij MW. Klein S, Ikram MA, Vos FM, Smith SM, Niessen WJ, Andersson JLR (2013)
+Improving alignment in Tract-based spatial statistics: Evaluation and optimization of image registration.
+NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
+
 
 ---------------------------------------------------------------------
 
