@@ -13,7 +13,10 @@
 #export LD_LIBRARY_PATH
 ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
 
-
+# Location of xtract data
+datadir=$FSLDIR/etc/xtract_data
+# tmp dir for testing
+datadir=/vols/Scratch/saad/xtract_data
 
 Usage() {
     cat << EOF
@@ -68,7 +71,7 @@ while [ ! -z "$1" ];do
 	-out) out=$2;shift;;
 	-str) str=$2;shift;;
 	-p)   p=$2;shift;;
-	-species) spec={$2^^};shift;;  # converts to uppercase
+	-species) spec=$2;shift;;  # converts to uppercase
 	-stdwarp) std2diff=$2;diff2std=$3;shift;shift;;
 	-gpu) gpu=1;;
 	-native) nat=1;;
@@ -91,6 +94,7 @@ if [ "$std2diff" == "" ];then
     fi
 fi
 
+echo SPECIES $spec
 
 
 # GPU stuff
@@ -116,7 +120,7 @@ if [ "$out" == "" ];then
     errflag=1
 fi
 
-if [ "$xspec" == "" ];then
+if [ "$spec" == "" ];then
     if [ "$str" == "" ];then
 	echo "Must set compulsory argument '-str'"
 	errflag=1
@@ -133,11 +137,11 @@ if [ "$xspec" == "" ];then
     fi
 else
     if [ "$spec" == "HUMAN" ];then
-	p=$FSLDIR/etc/fsl_autoPtx/protocols/Human
-	str=$FSLDIR/etc/fsl_autoPtx/protocols/structList
+	p=$datadir/Human
+	str=$p/structureList
     elif [ "$spec" == "MACAQUE" ];then
-	p=$FSLDIR/etc/fsl_autoPtx/protocols/Macaque
-	str=$FSLDIR/etc/fsl_autoPtx/protocols/structList
+	p=$datadir/Macaque
+	str=$p/structureList
     else
 	echo "Species must be one of HUMAN or MACAQUE"
 	errflag=1
