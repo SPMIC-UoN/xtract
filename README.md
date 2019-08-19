@@ -74,6 +74,35 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
   We also provide a copy of the F99 atlas in $FSLDIR/etc/xtract_data/standard/F99
   This includes a helper script for registering your own diffusion/structural data to the F99 altas
 
+When running XTRACT with the '-species' option, a predefined list of tracts is automatically extracted. Currently the following tracts are available:
+
+| **Tract**   | **Abbreviation** |
+| --------| ------------ |
+| Arcuate Fasciculus | AF |
+| Acoustic Radiation | AR |
+| Anterior Thalamic Radiation | ATR |
+| Cingulum subsection : Dorsal | CBD |
+| Cingulum subsection : Parahippocampal | CBP |
+| Cingulum subsection : Temporal | CBT |
+| Corticospinal Tract | CST |
+| Frontal Aslant | FA |
+| Forceps Major | FMA |
+| Forceps Minor | FMI |
+| Fornix | FX |
+| Inferior Longitudinal Fasciculus | ILF |
+| Inferior Fronto-Occipital Fasciculus | IFO |
+| Middle Cerebellar Peduncle | MCP |
+| Middle Longitudinal Fasciculuc | MdLF |
+| Optic Radiation | OR |
+| Superior Thalamic Radiation | STR |
+| Superior Longitudinal Fasciculus 1 | SLF1 |
+| Superior Longitudinal Fasciculus 2 | SLF2 |
+| Superior Longitudinal Fasciculus 3 | SLF3 |
+| Anterior Commissure | AC |
+| Uncinate Fasciculus | UF |
+
+
+
 ---------------------------------------------------------------------
 
 ## Adding your own tracts:
