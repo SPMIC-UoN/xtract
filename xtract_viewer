@@ -22,7 +22,7 @@ Usage:
 
     Optional arguments:
 
-       -str STRUCTURE ,STRUCTURE,...     Structures (comma separated (default = display all that is found in input folder)
+       -str STRUCTURE,STRUCTURE,...      Structures (comma separated (default = display all that is found in input folder)
 
        -thr NUMBER NUMBER                The lower and upper thresholds applied to the tracts for viewing
                                          Default = 0.001 0.1
