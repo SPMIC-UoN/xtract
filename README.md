@@ -1,5 +1,4 @@
 
----------------------------------------------------------------------
 
 **XTRACT is a command-line tool for running automated tractography**
 
