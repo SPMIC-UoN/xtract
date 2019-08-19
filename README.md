@@ -56,7 +56,7 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
        -gpu                              Use GPU version 
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
-```xs
+```
 ---------------------------------------------------------------------
 
 ## Runtime:
