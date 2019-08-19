@@ -1,5 +1,6 @@
 
 ---------------------------------------------------------------------
+
 ## XTRACT is a command-line tool for running automated tractography.
 
 XTRACT can be used to automatically extract a set of carefully dissected tracts in humans and macaques (other 
@@ -84,10 +85,10 @@ First you need to create a folder called 'mytrack' which you can add e.g. in the
 
 Then create the following NIFTI files (with this exact naming) and copy them into mytrack:
 
-*Compulsory*:
+**Compulsory**:
 - seed.nii.gz : a seed mask 
 
-*Optional*:
+**Optional**:
 - stop.nii.gz    : a stop mask if required
 - exclude.nii.gz : an exclusion mask if required
 - ONE of the following:
