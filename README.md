@@ -34,6 +34,14 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 
 ## Usage: 
 ```
+ __  _______ ____      _    ____ _____ 
+ \ \/ /_   _|  _ \    / \  / ___|_   _|
+  \  /  | | | |_) |  / _ \| |     | |  
+  /  \  | | |  _ <  / ___ \ |___  | |  
+ /_/\_\ |_| |_| \_\/_/   \_\____| |_|  
+ 
+
+Usage: 
     xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
     xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
     xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
@@ -56,6 +64,7 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
        -gpu                              Use GPU version 
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+
 ```
 ---------------------------------------------------------------------
 
@@ -129,3 +138,35 @@ Then create the following NIFTI files (with this exact naming) and copy them int
 All the masks above should be in standard space (e.g. MNI152 or F99) if you want to run the same tracking for a collection of subjects.
 
 
+---------------------------------------------------------------------
+
+## Visualising results with FSLEYES
+
+The output of XTRACT is a folder that contrains tracts in separate folders. We provide a convenient script that can load these tracts (or a subset of the tracts) into FSLEYES using different colours for the different tracts but matching the left/right colours
+
+```
+ __  _______ ____      _    ____ _____         _                        
+ \ \/ /_   _|  _ \    / \  / ___|_   _| __   _(_) _____      _____ _ __ 
+  \  /  | | | |_) |  / _ \| |     | |   \ \ / / |/ _ \ \ /\ / / _ \ '__|
+  /  \  | | |  _ <  / ___ \ |___  | |    \ V /| |  __/\ V  V /  __/ |   
+ /_/\_\ |_| |_| \_\/_/   \_\____| |_|     \_/ |_|\___| \_/\_/ \___|_|                                                                           
+                                                             
+
+Usage:
+    xtract_viewer -dir <xtractDir> [options]
+
+    Compulsory arguments:
+
+       -dir FOLDER                       Path to XTRACT output folder
+
+    Optional arguments:
+
+       -str STRUCTURE ,STRUCTURE,...     Structures (comma separated (default = display all that is found in input folder)
+
+       -thr NUMBER NUMBER                The lower and upper thresholds applied to the tracts for viewing
+                                         Default = 0.001 0.1
+
+       -brain                            The brain image to use for the background overlay - must be in the same space as tracts.
+                                         Default is the FSL_HCP065_FA map
+
+```
