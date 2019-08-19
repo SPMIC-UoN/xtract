@@ -1,6 +1,6 @@
 
 
-**XTRACT is a command-line tool for running automated tractography**
+## XTRACT is a command-line tool for running automated tractography
 
 XTRACT can be used to automatically extract a set of carefully dissected tracts in humans and macaques (other 
 species to come). It can also be used to define one's own tractography protocols where all the user needs to do is to 
