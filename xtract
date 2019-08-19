@@ -15,8 +15,6 @@ ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
 
 # Location of xtract data
 datadir=$FSLDIR/etc/xtract_data
-# tmp dir for testing
-datadir=/vols/Scratch/saad/xtract_data
 
 Usage() {
     cat << EOF
@@ -310,9 +308,9 @@ chmod +x $commands
 if [ "x$SGE_ROOT" != "x" ]; then  # Submit all commands to run in parallel on the cluster
     # One job per tract for a CPU cluster, one job for all tracts for a GPU cluster.
     if [ $gpu -eq 0 ];then
-	fsl_sub -q long.q -l $out/logs -N fsl_autoPtx -t $commands	
+	fsl_sub -q long.q -l $out/logs -N xtract -t $commands	
     else
-	fsl_sub -q $FSLGECUDAQ -l $out/logs -N fsl_autoPtx $commands
+	fsl_sub -q $FSLGECUDAQ -l $out/logs -N xtract $commands
 	#Submission call for the WashU GPU cluster    
 	#qsub -l nodes=1:ppn=1:gpus=1:K20x,walltime=04:00:00,mem=8gb -N autoPtx_GPU -e $out/logs/GPUerrofile -o $out/logs/GPUoutfile $commands
     fi
