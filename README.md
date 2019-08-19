@@ -1,6 +1,6 @@
 
 
-## XTRACT is a command-line tool for running automated tractography
+## XTRACT - a command-line tool for automated tractography
 
 XTRACT can be used to automatically extract a set of carefully dissected tracts in humans and macaques (other 
 species to come). It can also be used to define one's own tractography protocols where all the user needs to do is to 
@@ -100,6 +100,7 @@ When running XTRACT with the '-species' option, a predefined list of tracts is a
 | Superior Longitudinal Fasciculus 3 | SLF3 |
 | Anterior Commissure | AC |
 | Uncinate Fasciculus | UF |
+| Vertical Occipital Fasciculus | VOF |
 
 
 
