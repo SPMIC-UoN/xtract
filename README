@@ -1,9 +1,13 @@
 
 ---------------------------------------------------------------------
-xtract is a command-line tool for running automated tractography.
+### XTRACT is a command-line tool for running automated tractography.
+
+XTRACT can be used to automatically extract a set of carefully dissected tracts in humans and macaques (other 
+species to come). It can also be used to define one's own tractography protocols where all the user needs to do is to 
+define a set of masks in standard space (e.g. MNI)
 
 The script was written by Saad Jbabdi & Stamatios Sotiropoulos
-(based on the autoPtx tool by Marius de Groot)
+(based on the autoPtx tool by Marius de Groot - see https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/AutoPtx)
 
 The tractography protocols were created by:
 
@@ -14,7 +18,8 @@ Saad Jbabdi, Kathryn Bryant, Shaun Warrington, Marina Charquero-Ballester, Gwena
 
 
 ---------------------------------------------------------------------
-Citations:
+
+## Citations:
 
 
 Warrington S, Bryant K, Charquero-Ballester M, Douaud G, Jbabdi S*, Mars R*, Sotiropoulos SN* (in prep.)
@@ -27,7 +32,8 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 
 ---------------------------------------------------------------------
 
-Usage: 
+## Usage: 
+```
     xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
     xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
     xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
@@ -50,19 +56,36 @@ Usage:
        -gpu                              Use GPU version 
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+```xs
+---------------------------------------------------------------------
+
+## Runtime:
+  XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB 
+  For optimal performance, use the GPU version!!!! 
 
 ---------------------------------------------------------------------
 
-Adding your own tracts:
+Atlases:
+
+- For HUMAN, XTRACT uses the MNI152 standard space in $FSLDIR/etc/standard
+
+- For MACAQUE, XTRACT uses the F99 atlas in Caret - see http://brainvis.wustl.edu/wiki/index.php/Caret:Atlases
+  
+  We also provide a copy of the F99 atlas in $FSLDIR/etc/xtract_data/standard/F99
+  This includes a helper script for registering your own diffusion/structural data to the F99 altas
+
+---------------------------------------------------------------------
+
+## Adding your own tracts:
 
 Suppose you want to create an automated protocol for a tract called 'mytrack'.  
 
-First you need to create a folder called 'protocols/mytrack' within the protocols folder. 
+First you need to create a folder called 'mytrack' which you can add e.g. in the protocols folder. 
 
-Then create the following image files (with this exact naming) and copy them into protocols/mytrack:
+Then create the following NIFTI files (with this exact naming) and copy them into mytrack:
 
 [Compulsory]:
-- seed.nii.gz : a seed mask in MNI152 space
+- seed.nii.gz : a seed mask 
 
 [Optional]:
 - stop.nii.gz    : a stop mask if required
@@ -73,6 +96,6 @@ Then create the following image files (with this exact naming) and copy them int
 - invert (empty file to indicate that a seed->target and target->seed run will be added and combined)
   if such an option is required a single "target.nii.gz" file is also expected 
 
-
+All the masks above should be in standard space (e.g. MNI152 or F99) if you want to run the same tracking for a collection of subjects.
 
 
