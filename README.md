@@ -59,13 +59,13 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 ```
 ---------------------------------------------------------------------
 
-## Runtime:
+## Running XTRACT:
   XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB 
   For optimal performance, use the GPU version!!!! 
 
 ---------------------------------------------------------------------
 
-Atlases:
+## Atlases:
 
 - For HUMAN, XTRACT uses the MNI152 standard space in $FSLDIR/etc/standard
 
