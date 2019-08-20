@@ -62,6 +62,14 @@ EOF
 
 }
 
+Warning (){
+cat <<EOF
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  WARNING!!!! MACAQUE TRACTS ARE A WORK IN PROGRESS STILL....
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
+EOF
+}
+
 Splash
 
 [ "$1" = "" ] && Usage
@@ -157,6 +165,7 @@ else
     elif [ "$spec" == "MACAQUE" ];then
 	p=$datadir/Macaque
 	str=$p/structureList
+	Warning
     else
 	echo "Species must be one of HUMAN or MACAQUE"
 	errflag=1
