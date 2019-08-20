@@ -4,7 +4,7 @@
 
 XTRACT can be used to automatically extract a set of carefully dissected tracts in humans and macaques (other 
 species to come). It can also be used to define one's own tractography protocols where all the user needs to do is to 
-define a set of masks in standard space (e.g. MNI)
+define a set of masks in standard space (e.g. MNI152)
 
 The script was written by Saad Jbabdi & Stamatios Sotiropoulos
 (based on the autoPtx tool by Marius de Groot - see https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/AutoPtx)
@@ -16,6 +16,7 @@ Rogier Mars & Stamatios Sotiropoulos
 with help from:
 Saad Jbabdi, Kathryn Bryant, Shaun Warrington, Marina Charquero-Ballester, Gwenaelle Douaud
 
+The XTRACT viewer helper script was written by Shaun Warrington
 
 ---------------------------------------------------------------------
 
@@ -69,7 +70,7 @@ Usage:
 ---------------------------------------------------------------------
 
 ## Running XTRACT:
-  XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB 
+  XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB. 
   For optimal performance, use the GPU version!!!! 
 
 ---------------------------------------------------------------------
@@ -80,8 +81,7 @@ Usage:
 
 - For MACAQUE, XTRACT uses the F99 atlas in Caret - see http://brainvis.wustl.edu/wiki/index.php/Caret:Atlases
   
-  We also provide a copy of the F99 atlas in $FSLDIR/etc/xtract_data/standard/F99
-  This includes a helper script for registering your own diffusion/structural data to the F99 altas
+  We also provide a copy of the F99 atlas in $FSLDIR/etc/xtract_data/standard/F99. This includes a helper script for registering your own diffusion/structural data to the F99 altas
 
 When running XTRACT with the '-species' option, a predefined list of tracts is automatically extracted. Currently the following tracts are available:
 
