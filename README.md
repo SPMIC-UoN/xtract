@@ -63,6 +63,8 @@ Usage:
        -gpu                              Use GPU version 
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+       -ptx_options <options.txt>	     Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+
 
 ```
 ---------------------------------------------------------------------
