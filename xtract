@@ -336,7 +336,7 @@ if [ "x$SGE_ROOT" != "x" ]; then  # Submit all commands to run in parallel on th
     if [ $gpu -eq 0 ];then
 	fsl_sub -q long.q -l $out/logs -N xtract -t $commands	
     else
-	fsl_sub -q $FSLGECUDAQ -l $out/logs -N xtract $commands
+	fsl_sub -q $FSLGECUDAQ -T 300 -l $out/logs -N xtract $commands
 	#Submission call for the WashU GPU cluster    
 	#qsub -l nodes=1:ppn=1:gpus=1:K20x,walltime=04:00:00,mem=8gb -N autoPtx_GPU -e $out/logs/GPUerrofile -o $out/logs/GPUoutfile $commands
     fi
