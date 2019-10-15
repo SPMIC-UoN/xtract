@@ -1,5 +1,3 @@
-
-
 ## XTRACT - a command-line tool for automated tractography
 
 XTRACT can be used to automatically extract a set of carefully dissected tracts in humans and macaques (other 
@@ -101,7 +99,7 @@ When running XTRACT with the '-species' option, a predefined list of tracts is a
 | Inferior Longitudinal Fasciculus | ILF |
 | Inferior Fronto-Occipital Fasciculus | IFO |
 | Middle Cerebellar Peduncle | MCP |
-| Middle Longitudinal Fasciculuc | MdLF |
+| Middle Longitudinal Fasciculus | MdLF |
 | Optic Radiation | OR |
 | Superior Thalamic Radiation | STR |
 | Superior Longitudinal Fasciculus 1 | SLF1 |
