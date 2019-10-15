@@ -8,9 +8,6 @@
 # Protocols created by Rogier Mars et al.
 
 
-#Location of CUDA binaries and libraries
-#LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/opt/cuda-7.5/lib
-#export LD_LIBRARY_PATH
 ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
 
 # Location of xtract data
@@ -42,6 +39,7 @@ Usage:
        -gpu                              Use GPU version 
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+       -ptx_options <options.txt>	 Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
 
 EOF
     exit 1
@@ -81,6 +79,7 @@ out=""
 str=""
 p=""
 std2diff=""
+ptx_opts=""
 stdref="$FSLDIR/data/standard/MNI152_T1_1mm"
 gpu=0
 nat=0
@@ -99,6 +98,8 @@ while [ ! -z "$1" ];do
 	-gpu) gpu=1;;
 	-native) nat=1;;
 	-res) res=$2;shift;;
+	-ptx_options) ptx_opts=`cat $2`;shift;;
+
 	*) echo "Unknown option '$1'";exit 1;;
     esac
     shift
@@ -186,6 +187,9 @@ mkdir -p $out/tracts
 # Set common ptx options
 opts=" -s $bpx/merged -m $bpx/nodif_brain_mask -V 1"
 opts=" $opts --loopcheck --forcedir --opd --ompl --seedref=$stdref --sampvox=1 --randfib=1 "
+
+# Add any user-defined ptx options
+opts=" $opts $ptx_opts"
 
 if [ "$nat" -eq 0 ];then
     opts="$opts --xfm=$std2diff --invxfm=$diff2std "
@@ -337,8 +341,6 @@ if [ "x$SGE_ROOT" != "x" ]; then  # Submit all commands to run in parallel on th
 	fsl_sub -q long.q -l $out/logs -N xtract -t $commands	
     else
 	fsl_sub -q $FSLGECUDAQ -T 300 -l $out/logs -N xtract $commands
-	#Submission call for the WashU GPU cluster    
-	#qsub -l nodes=1:ppn=1:gpus=1:K20x,walltime=04:00:00,mem=8gb -N autoPtx_GPU -e $out/logs/GPUerrofile -o $out/logs/GPUoutfile $commands
     fi
 else   # If no SGE, run locally
     sh $commands
