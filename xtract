@@ -16,7 +16,7 @@ datadir=$FSLDIR/etc/xtract_data
 Usage() {
     cat << EOF
 
-Usage: 
+Usage:
     xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
     xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
     xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
@@ -25,7 +25,7 @@ Usage:
 
        -bpx <folder>                     Path to bedpostx folder
        -out <folder>                     Path to output folder
-       
+
        And EITHER:
        -str <file>                       Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
        -p   <folder>                     Protocols folder (all masks in same standard space)
@@ -35,8 +35,8 @@ Usage:
 
     Optional arguments:
 
-       -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard}) 
-       -gpu                              Use GPU version 
+       -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
+       -gpu                              Use GPU version
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
        -ptx_options <options.txt>	 Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
@@ -50,12 +50,12 @@ Splash (){
 
 cat <<EOF
 
- __  _______ ____      _    ____ _____ 
+ __  _______ ____      _    ____ _____
  \ \/ /_   _|  _ \    / \  / ___|_   _|
-  \  /  | | | |_) |  / _ \| |     | |  
-  /  \  | | |  _ <  / ___ \ |___  | |  
- /_/\_\ |_| |_| \_\/_/   \_\____| |_|  
- 
+  \  /  | | | |_) |  / _ \| |     | |
+  /  \  | | |  _ <  / ___ \ |___  | |
+ /_/\_\ |_| |_| \_\/_/   \_\____| |_|
+
 EOF
 
 }
@@ -64,7 +64,7 @@ Warning (){
 cat <<EOF
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   WARNING!!!! MACAQUE TRACTS ARE A WORK IN PROGRESS STILL....
-  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 EOF
 }
 
@@ -219,13 +219,13 @@ while read structstring; do
 	    nseed=1
 	fi
 	nseed=$(echo "scale=0; 1000 * ${nseed} / 1"|bc)
-	
+
 	maskdir=$p/$struct
 
-	#  DEALING WITH RESAMPLING -- 
-	# Pick space to run tractography in (diffusion or standard)	
+	#  DEALING WITH RESAMPLING --
+	# Pick space to run tractography in (diffusion or standard)
 	if [ "$nat" -eq 1 ];then
-	    echo " -- transforming masks into native space"	    
+	    echo " -- transforming masks into native space"
 	    mkdir -p $out/masks/$struct
 	    for m in seed stop exclude;do
 		if [ `$FSLDIR/bin/imtest $maskdir/$m` -eq 1 ];then
@@ -233,22 +233,22 @@ while read structstring; do
 		    $FSLDIR/bin/fslmaths $out/masks/$struct/$m -thr 0.1 -bin $out/masks/$struct/$m -odt char
 		fi
 		eval "${m}=$out/masks/$struct/$m"
-	    done	    
+	    done
 	else
-	    for m in seed stop exclude;do		
+	    for m in seed stop exclude;do
 		if [ $res -gt 0 ];then
 		    # Resample at a different resolution
 		    mkdir -p $out/masks/$struct
 		    if [ `$FSLDIR/bin/imtest $maskdir/$m` -eq 1 ];then
-			$FSLDIR/bin/flirt -in $maskdir/$m -out $out/masks/$struct/$m -applyisoxfm $res -ref $maskdir/$m 
+			$FSLDIR/bin/flirt -in $maskdir/$m -out $out/masks/$struct/$m -applyisoxfm $res -ref $maskdir/$m
 			$FSLDIR/bin/fslmaths $out/masks/$struct/$m -thr 0.1 -bin $out/masks/$struct/$m -odt char
-		    fi		
-		    eval "${m}=$out/masks/$struct/$m"		    
+		    fi
+		    eval "${m}=$out/masks/$struct/$m"
 		else
 		    eval "${m}=$maskdir/$m"
 		fi
 	    done
-	fi	
+	fi
 
 	# Deal with targets (in cases where there may be more than one)
 	targets=`imglob $maskdir/target*`
@@ -276,7 +276,7 @@ while read structstring; do
 
 	# Get generic options
 	o=$opts
-	
+
         # Add inclusion/exclusion masks
 	if [ `$FSLDIR/bin/imtest $stop` -eq 1 ];then
 	    o="$o --stop=$stop"
@@ -287,7 +287,7 @@ while read structstring; do
 
 	# Add seed/target
 	o1="$o --nsamples=$nseed -x $seed "
-	
+
 	if [ "x${targets}" != "x" ];then #Add waypoints if there are any
        	    o1=" $o1 --waypoints=$targetfile "
 	fi
@@ -295,8 +295,8 @@ while read structstring; do
         # Outputs
 	o1=" $o1 -o density --dir=$out/tracts/$struct"
 
-	
-	# Does the protocol define a second run with inverted seed / target masks? 
+
+	# Does the protocol define a second run with inverted seed / target masks?
 	if [ -e $maskdir/invert ]; then  #Invert-mode
 	    if 	[ `$FSLDIR/bin/imtest $maskdir/target.nii.gz` -eq 1 ];then 	# Check if a target.nii.gz image exists when invert option has been selected.
 		mkdir -p $out/tracts/$struct/tractsInv
@@ -311,8 +311,8 @@ while read structstring; do
 		mergecmd="$FSLDIR/bin/fslmaths $out/tracts/$struct/density -add $out/tracts/$struct/tractsInv/density $out/tracts/$struct/sum_density"
 
 		#Add waypoints (create command but don't execute)
-		addcmd="echo \"scale=5; \`cat $out/tracts/$struct/waytotal\` + \`cat $out/tracts/$struct/tractsInv/waytotal\` \"|bc > $out/tracts/$struct/sum_waytotal" 
-		
+		addcmd="echo \"scale=5; \`cat $out/tracts/$struct/waytotal\` + \`cat $out/tracts/$struct/tractsInv/waytotal\` \"|bc > $out/tracts/$struct/sum_waytotal"
+
 		# Waypoint normalisation (create command but don't execute)
 		normcmd="$FSLDIR/bin/fslmaths $out/tracts/$struct/sum_density -div \`cat $out/tracts/$struct/sum_waytotal\` $out/tracts/$struct/densityNorm"
 
@@ -338,7 +338,7 @@ chmod +x $commands
 if [ "x$SGE_ROOT" != "x" ]; then  # Submit all commands to run in parallel on the cluster
     # One job per tract for a CPU cluster, one job for all tracts for a GPU cluster.
     if [ $gpu -eq 0 ];then
-	fsl_sub -q long.q -l $out/logs -N xtract -t $commands	
+	fsl_sub -q long.q -T 2160 -l $out/logs -N xtract -t $commands	
     else
 	fsl_sub -q $FSLGECUDAQ -T 300 -l $out/logs -N xtract $commands
     fi
