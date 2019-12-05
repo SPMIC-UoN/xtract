@@ -4,7 +4,7 @@ XTRACT can be used to automatically extract a set of carefully dissected tracts 
 species to come). It can also be used to define one's own tractography protocols where all the user needs to do is to
 define a set of masks in standard space (e.g. MNI152)
 
-The script was written by Saad Jbabdi & Stamatios Sotiropoulos
+The script was written by Saad Jbabdi & Stamatios Sotiropoulos and slightly edited by Shaun Warrington
 (based on the autoPtx tool by Marius de Groot - see https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/AutoPtx)
 
 The tractography protocols were created by:
@@ -21,7 +21,7 @@ The XTRACT viewer helper script was written by Shaun Warrington
 ## Citations:
 
 
-Warrington S, Bryant K, Charquero-Ballester M, Douaud G, Jbabdi S*, Mars R*, Sotiropoulos SN* (in prep.)
+Warrington S, Bryant K, Charquero-Ballester M, Douaud G, Jbabdi S*, Mars R*, Sotiropoulos SN* (Submitted)
 Standardised protocols for automated tractography and connectivity blueprints in the human and macaque brain.
 
 de Groot M; Vernooij MW. Klein S, Ikram MA, Vos FM, Smith SM, Niessen WJ, Andersson JLR (2013)
