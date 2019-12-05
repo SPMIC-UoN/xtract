@@ -338,9 +338,9 @@ chmod +x $commands
 if [ "x$SGE_ROOT" != "x" ]; then  # Submit all commands to run in parallel on the cluster
     # One job per tract for a CPU cluster, one job for all tracts for a GPU cluster.
     if [ $gpu -eq 0 ];then
-	fsl_sub -q long.q -T 2160 -l $out/logs -N xtract -t $commands	
+	fsl_sub -T 2160 -q long.q -l $out/logs -N xtract -t $commands
     else
-	fsl_sub -q $FSLGECUDAQ -T 300 -l $out/logs -N xtract $commands
+	fsl_sub -T 300 -q $FSLGECUDAQ -l $out/logs -N xtract $commands
     fi
 else   # If no SGE, run locally
     sh $commands
