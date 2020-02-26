@@ -91,7 +91,7 @@ When running XTRACT with the '-species' option, a predefined list of tracts is a
 | Acoustic Radiation | AR |
 | Anterior Thalamic Radiation | ATR |
 | Cingulum subsection : Dorsal | CBD |
-| Cingulum subsection : Parahippocampal | CBP |
+| Cingulum subsection : Per-genual | CBP |
 | Cingulum subsection : Temporal | CBT |
 | Corticospinal Tract | CST |
 | Frontal Aslant | FA |
