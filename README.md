@@ -81,37 +81,37 @@ When running XTRACT with the '-species' option, a predefined list of tracts is a
 
 | **Tract**   | **Abbreviation** | **XTRACT tractName** |
 | -------- | ------------ | ------------ |
-| Arcuate Fasciculus | AF | af_l af_r |
-| Acoustic Radiation | AR | ar_l ar_r |
-| Anterior Thalamic Radiation | ATR | atr_l atr_r |
-| Cingulum subsection : Dorsal | CBD | cbd_l cbd_r |
-| Cingulum subsection : Peri-genual | CBP | cbp_l cbp_r |
-| Cingulum subsection : Temporal | CBT | cbt_l cbt_r |
-| Corticospinal Tract | CST | cst_l cst_r |
-| Frontal Aslant | FA | fa_l fa_r |
+| Arcuate Fasciculus | AF | af_l   af_r |
+| Acoustic Radiation | AR | ar_l   ar_r |
+| Anterior Thalamic Radiation | ATR | atr_l   atr_r |
+| Cingulum subsection : Dorsal | CBD | cbd_l   cbd_r |
+| Cingulum subsection : Peri-genual | CBP | cbp_l   cbp_r |
+| Cingulum subsection : Temporal | CBT | cbt_l   cbt_r |
+| Corticospinal Tract | CST | cst_l   cst_r |
+| Frontal Aslant | FA | fa_l   fa_r |
 | Forceps Major | FMA | fma |
 | Forceps Minor | FMI | fmi |
-| Fornix | FX | fx_l fx_r |
-| Inferior Longitudinal Fasciculus | ILF | ilf_l ilf_r |
-| Inferior Fronto-Occipital Fasciculus | IFO | ifo_l ifo_r |
+| Fornix | FX | fx_l   fx_r |
+| Inferior Longitudinal Fasciculus | ILF | ilf_l   ilf_r |
+| Inferior Fronto-Occipital Fasciculus | IFO | ifo_l   ifo_r |
 | Middle Cerebellar Peduncle | MCP | mcp |
-| Middle Longitudinal Fasciculus | MdLF | mdlf_l mdlf_r |
+| Middle Longitudinal Fasciculus | MdLF | mdlf_l   mdlf_r |
 | Optic Radiation | OR | or_l or_r |
-| Superior Thalamic Radiation | STR | str_l str_r |
-| Superior Longitudinal Fasciculus 1 | SLF1 | slf1_l slf1_r |
-| Superior Longitudinal Fasciculus 2 | SLF2 | slf2_l slf2_r |
-| Superior Longitudinal Fasciculus 3 | SLF3 | slf3_l slf3_r |
+| Superior Thalamic Radiation | STR | str_l   str_r |
+| Superior Longitudinal Fasciculus 1 | SLF1 | slf1_l   slf1_r |
+| Superior Longitudinal Fasciculus 2 | SLF2 | slf2_l   slf2_r |
+| Superior Longitudinal Fasciculus 3 | SLF3 | slf3_l   slf3_r |
 | Anterior Commissure | AC | ac |
-| Uncinate Fasciculus | UF | uf_l uf_r |
-| Vertical Occipital Fasciculus | VOF | vof_l vof_r |
+| Uncinate Fasciculus | UF | uf_l   uf_r |
+| Vertical Occipital Fasciculus | VOF | vof_l   vof_r |
 
 You can run a subset of these tracts by providing a structure text file using the format:
 
-<tractName> per line (default number of seeds taken from default structure file)
+tractName, per line (default number of seeds taken from default structure file)
 
 OR
 
-<tractName> <nsamples> per line
+tractName nsamples, per line
 
 For an example, see $FSLDIR/etc/xtract_data/Human/structureList
 
