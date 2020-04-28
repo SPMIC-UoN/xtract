@@ -80,7 +80,7 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 When running XTRACT with the '-species' option, a predefined list of tracts is automatically extracted. Currently the following tracts are available:
 
 | **Tract**   | **Abbreviation** | **XTRACT tractName** |
-| --------| ------------ |
+| -------- | ------------ | ------------ |
 | Arcuate Fasciculus | AF | af_l af_r |
 | Acoustic Radiation | AR | ar_l ar_r |
 | Anterior Thalamic Radiation | ATR | atr_l atr_r |
