@@ -7,7 +7,7 @@
 # Written by Saad Jbabdi & Stam Sotiropoulos (based on Marius de Groot autoPtx code)
 # Protocols created by Rogier Mars et al.
 
-
+# Location of probtrackx2_gpu binary
 ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
 
 # Location of xtract data
@@ -17,29 +17,24 @@ Usage() {
     cat << EOF
 
 Usage:
-    xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
-    xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
-    xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species <SPECIES> [options]
+    xtract -list
 
     Compulsory arguments:
 
        -bpx <folder>                     Path to bedpostx folder
        -out <folder>                     Path to output folder
-
-       And EITHER:
-       -str <file>                       Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
-       -p   <folder>                     Protocols folder (all masks in same standard space)
-
-       Or:
        -species <SPECIES>                One of HUMAN or MACAQUE
 
     Optional arguments:
-
+       -list                             List the tract names used in XTRACT
+       -str <file>                       Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+       -p   <folder>                     Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
        -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
        -gpu                              Use GPU version
        -native                           Run tractography in native (diffusion) space
        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
-       -ptx_options <options.txt>	 Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+       -ptx_options <options.txt>	       Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
 
 EOF
     exit 1
@@ -60,14 +55,6 @@ EOF
 
 }
 
-Warning (){
-cat <<EOF
-  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  WARNING!!!! MACAQUE TRACTS ARE A WORK IN PROGRESS STILL....
-  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-EOF
-}
-
 Splash
 
 [ "$1" = "" ] && Usage
@@ -80,11 +67,13 @@ str=""
 p=""
 std2diff=""
 ptx_opts=""
-stdref="$FSLDIR/data/standard/MNI152_T1_1mm"
+stdref=""
 gpu=0
 nat=0
 spec=""
 res=-1
+list=0
+seedget=0 # if user specifies -str and format is <tractName>, try to get nseeds from default structureList (i.e. if using a subset of XTRACT tracts)
 
 # Parse command-line arguments
 while [ ! -z "$1" ];do
@@ -98,12 +87,33 @@ while [ ! -z "$1" ];do
 	-gpu) gpu=1;;
 	-native) nat=1;;
 	-res) res=$2;shift;;
+  -list) list=1;shift;;
 	-ptx_options) ptx_opts=`cat $2`;shift;;
 
 	*) echo "Unknown option '$1'";exit 1;;
     esac
     shift
 done
+
+# list argument
+if [ "$list" -eq 1 ];then
+    tractNames=""
+    echo ""
+    echo "Tract names:"
+    while read structstring; do
+      struct=`echo $structstring | awk '{print $1}'`
+      if [ "${struct:0:1}" == "#" ];then
+    	foo=0
+      elif [ "$struct" == "" ];then
+    	foo=0
+      else
+      tractNames="${tractNames} ${struct},"
+      fi
+    done < $datadir/Human/structureList
+    echo ${tractNames%,}
+    exit 1
+fi
+
 # Default warps
 if [ "$std2diff" == "" ];then
     std2diff=$bpx/xfms/standard2diff
@@ -120,7 +130,6 @@ fi
 
 echo SPECIES $spec
 
-
 # GPU stuff
 if [ $gpu -eq 0 ];then
     ptxbin=$FSLDIR/bin/probtrackx2
@@ -128,7 +137,6 @@ else
     # Temp location of CUDA code
     ptxbin=${ptxbin_gpu}
 fi
-
 
 # Check compulsory arguments
 errflag=0
@@ -144,33 +152,83 @@ if [ "$out" == "" ];then
     errflag=1
 fi
 
+# Check which species and protocols to run
 if [ "$spec" == "" ];then
-    if [ "$str" == "" ];then
-	echo "Must set compulsory argument '-str'"
-	errflag=1
-    elif [ ! -f $str ];then
-	echo "Structure file $str not found"
-	errflag=1
-    fi
+  echo "Must set compulsory argument '-species'"
+  errflag=1
+elif [ "$spec" == "HUMAN" ];then
+    stdref=$FSLDIR/data/standard/MNI152_T1_1mm
+    strdef=$datadir/Human/structureList
     if [ "$p" == "" ];then
-	echo "Must set compulsory argument '-p'"
-	errflag=1
-    elif [ ! -d $p ];then
-	echo "Protocol folder $p not found"
-	errflag=1
+      p=$datadir/Human
+      if [ "$str" == "" ];then
+        str=$p/structureList
+      fi
+    elif [ ! "$p" == "" ];then
+      if [ "$str" == "" ];then
+        echo "If selecting a protocol folder, must set argument '-str'"
+        errflag=1
+      fi
+    fi
+elif [ "$spec" == "MACAQUE" ];then
+    stdref=$datadir/standard/F99/mri/struct_brain
+    strdef=$datadir/Macaque/structureList
+    if [ "$p" == "" ];then
+      p=$datadir/Macaque
+      if [ "$str" == "" ];then
+        str=$p/structureList
+      fi
+    elif [ ! "$p" == "" ];then
+      if [ "$str" == "" ];then
+        echo "If selecting a protocol folder, must set argument '-str'"
+        errflag=1
+      fi
     fi
 else
-    if [ "$spec" == "HUMAN" ];then
-	p=$datadir/Human
-	str=$p/structureList
-    elif [ "$spec" == "MACAQUE" ];then
-	p=$datadir/Macaque
-	str=$p/structureList
-	Warning
+    echo "Species must be one of HUMAN or MACAQUE"
+    errflag=1
+fi
+
+# Check that -str and -p exist
+if [ ! -d $p ];then
+  echo "Protocol folder $p not found"
+  errflag=1
+fi
+if [ ! -f $str ];then
+  echo "Structures files $str not found"
+  errflag=1
+fi
+
+# Check -str file format
+tchk=()
+if [ ! "$str" == "$strdef" ];then
+  while read structstring; do
+    struct=`echo $structstring | awk '{print $1}'`
+    if [ "${struct:0:1}" == "#" ];then
+  	foo=0
+    elif [ "$struct" == "" ];then
+  	foo=0
     else
-	echo "Species must be one of HUMAN or MACAQUE"
-	errflag=1
+      if [ "`echo $structstring | awk '{print $2}'`" == "" ];then
+      tchk+=("1") # if empty, then 1 - get nseeds from default -str file
+      else
+      tchk+=("0")
+      fi
     fi
+  done < $str
+  IFS=$'\n'; tchk=($(sort <<<"${tchk[*]}")); unset IFS
+  if [ ! "${tchk[0]}" -eq "${tchk[${#tchk[@]}-1]}" ];then
+    echo ""
+    echo "-str file format is inconsistent. Format should be either:"
+    echo "<tractName> per line"
+    echo "OR"
+    echo "<tractName> [samples=1] per line"
+    echo "samples=1, 1 means 1000. Use '#' to skip lines"
+    errflag=1
+  elif [ ${tchk[0]} -eq 1 ];then
+    echo "Using subset of XTRACT protocols and getting 'nsamples' from default structure file."
+    seedget=1
+  fi
 fi
 
 if [ "$errflag" -eq 1 ];then
@@ -200,24 +258,31 @@ commands=$out/commands.txt
 rm -rf $commands
 echo "Preparing submission script..."
 while read structstring; do
-    struct=`echo $structstring | awk '{print $1}'`
-    # skip empty lines and lines that start with '#'
-    if [ "${struct:0:1}" == "#" ];then
+  struct=`echo $structstring | awk '{print $1}'`
+  # skip empty lines and lines that start with '#'
+  if [ "${struct:0:1}" == "#" ];then
 	# do nothing
 	foo=0
 	#echo "----- Skip line $structstring -----"
-    elif [ "$struct" == "" ];then
+  elif [ "$struct" == "" ];then
 	# do nothing
 	foo=0
 	#echo "----- Skip empty line -----"
-    else
+  else
 	#echo "autoTrack $struct"
 	mkdir -p $out/tracts/$struct
 
-	nseed=`echo $structstring | awk '{print $2}'`
-	if [ "$nseed" == "" ];then
-	    nseed=1
-	fi
+  # if running a subset of tracts and -str format is <tractName>, check for nseed in str file
+  if [ "$seedget" -eq 1 ]; then
+      nseed=`grep -w ${struct} $strdef | awk '{print $2}'`
+      if [ "$nseed" == "" ];then
+        echo "Couldn't find number of samples for '$struct'. Exiting now."
+        exit 1
+      fi
+  else
+	    nseed=`echo $structstring | awk '{print $2}'`
+	    if [ "$nseed" == "" ];then nseed=1; fi
+  fi
 	nseed=$(echo "scale=0; 1000 * ${nseed} / 1"|bc)
 
 	maskdir=$p/$struct
