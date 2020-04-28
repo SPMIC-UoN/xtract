@@ -4,7 +4,7 @@ XTRACT can be used to automatically extract a set of carefully dissected tracts 
 species to come). It can also be used to define one's own tractography protocols where all the user needs to do is to
 define a set of masks in standard space (e.g. MNI152)
 
-The script was written by Saad Jbabdi & Stamatios Sotiropoulos and slightly edited by Shaun Warrington
+The script was written by Saad Jbabdi, Stamatios Sotiropoulos & Shaun Warrington
 (based on the autoPtx tool by Marius de Groot - see https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/AutoPtx)
 
 The tractography protocols were created by:
@@ -40,31 +40,25 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
  /_/\_\ |_| |_| \_\/_/   \_\____| |_|  
 
 
-Usage:
-    xtract -bpx <bedpostX_dir> -out <outputDir> -str <structuresFile> -p <protocolsFolder> [options]
-    xtract -bpx <bedpostX_dir> -out <outputDir> -species HUMAN [options]
-    xtract -bpx <bedpostX_dir> -out <outputDir> -species MACAQUE [options]
+ Usage:
+     xtract -bpx <bedpostX_dir> -out <outputDir> -species <SPECIES> [options]
+     xtract -list
 
-    Compulsory arguments:
+     Compulsory arguments:
 
-       -bpx <folder>                     Path to bedpostx folder
-       -out <folder>                     Path to output folder
+        -bpx <folder>                     Path to bedpostx folder
+        -out <folder>                     Path to output folder
+        -species <SPECIES>                One of HUMAN or MACAQUE
 
-       And EITHER:
-       -str <file>                       Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
-       -p   <folder>                     Protocols folder (all masks in same standard space)
-
-       Or:
-       -species <SPECIES>                One of HUMAN or MACAQUE
-
-    Optional arguments:
-
-       -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
-       -gpu                              Use GPU version
-       -native                           Run tractography in native (diffusion) space
-       -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
-       -ptx_options <options.txt>	     Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
-
+     Optional arguments:
+        -list                             List the tract names used in XTRACT
+        -str <file>                       Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+        -p   <folder>                     Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
+        -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
+        -gpu                              Use GPU version
+        -native                           Run tractography in native (diffusion) space
+        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
+        -ptx_options <options.txt>	       Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
 
 ```
 ---------------------------------------------------------------------
@@ -85,33 +79,41 @@ Usage:
 
 When running XTRACT with the '-species' option, a predefined list of tracts is automatically extracted. Currently the following tracts are available:
 
-| **Tract**   | **Abbreviation** |
+| **Tract**   | **Abbreviation** | **XTRACT tractName** |
 | --------| ------------ |
-| Arcuate Fasciculus | AF |
-| Acoustic Radiation | AR |
-| Anterior Thalamic Radiation | ATR |
-| Cingulum subsection : Dorsal | CBD |
-| Cingulum subsection : Peri-genual | CBP |
-| Cingulum subsection : Temporal | CBT |
-| Corticospinal Tract | CST |
-| Frontal Aslant | FA |
-| Forceps Major | FMA |
-| Forceps Minor | FMI |
-| Fornix | FX |
-| Inferior Longitudinal Fasciculus | ILF |
-| Inferior Fronto-Occipital Fasciculus | IFO |
-| Middle Cerebellar Peduncle | MCP |
-| Middle Longitudinal Fasciculus | MdLF |
-| Optic Radiation | OR |
-| Superior Thalamic Radiation | STR |
-| Superior Longitudinal Fasciculus 1 | SLF1 |
-| Superior Longitudinal Fasciculus 2 | SLF2 |
-| Superior Longitudinal Fasciculus 3 | SLF3 |
-| Anterior Commissure | AC |
-| Uncinate Fasciculus | UF |
-| Vertical Occipital Fasciculus | VOF |
+| Arcuate Fasciculus | AF | af_l af_r |
+| Acoustic Radiation | AR | ar_l ar_r |
+| Anterior Thalamic Radiation | ATR | atr_l atr_r |
+| Cingulum subsection : Dorsal | CBD | cbd_l cbd_r |
+| Cingulum subsection : Peri-genual | CBP | cbp_l cbp_r |
+| Cingulum subsection : Temporal | CBT | cbt_l cbt_r |
+| Corticospinal Tract | CST | cst_l cst_r |
+| Frontal Aslant | FA | fa_l fa_r |
+| Forceps Major | FMA | fma |
+| Forceps Minor | FMI | fmi |
+| Fornix | FX | fx_l fx_r |
+| Inferior Longitudinal Fasciculus | ILF | ilf_l ilf_r |
+| Inferior Fronto-Occipital Fasciculus | IFO | ifo_l ifo_r |
+| Middle Cerebellar Peduncle | MCP | mcp |
+| Middle Longitudinal Fasciculus | MdLF | mdlf_l mdlf_r |
+| Optic Radiation | OR | or_l or_r |
+| Superior Thalamic Radiation | STR | str_l str_r |
+| Superior Longitudinal Fasciculus 1 | SLF1 | slf1_l slf1_r |
+| Superior Longitudinal Fasciculus 2 | SLF2 | slf2_l slf2_r |
+| Superior Longitudinal Fasciculus 3 | SLF3 | slf3_l slf3_r |
+| Anterior Commissure | AC | ac |
+| Uncinate Fasciculus | UF | uf_l uf_r |
+| Vertical Occipital Fasciculus | VOF | vof_l vof_r |
 
+You can run a subset of these tracts by providing a structure text file using the format:
 
+<tractName> per line (default number of seeds taken from default structure file)
+
+OR
+
+<tractName> <nsamples> per line
+
+For an example, see $FSLDIR/etc/xtract_data/Human/structureList
 
 ---------------------------------------------------------------------
 
@@ -121,7 +123,7 @@ Suppose you want to create an automated protocol for a tract called 'mytrack'.
 
 First you need to create a folder called 'mytrack' which you can add e.g. in the protocols folder.
 
-Then create the following NIFTI files (with this exact naming) and copy them into mytrack:
+Then create the following NIFTI files (with this exact naming) and copy them into 'mytrack':
 
 **Compulsory**:
 - seed.nii.gz : a seed mask
@@ -137,12 +139,13 @@ Then create the following NIFTI files (with this exact naming) and copy them int
 
 All the masks above should be in standard space (e.g. MNI152 or F99) if you want to run the same tracking for a collection of subjects.
 
+Next, make a structure file using the format <tractName> <nsamples> per line and call XTRACT using -species <SPECIES> -str <file> -p <folder>, pointing to your new protocols folder 'mytrack'.
 
 ---------------------------------------------------------------------
 
 ## Visualising results with FSLEYES
 
-The output of XTRACT is a folder that contrains tracts in separate folders. We provide a convenient script that can load these tracts (or a subset of the tracts) into FSLEYES using different colours for the different tracts but matching the left/right colours
+The output of XTRACT is a folder that contains tracts in separate folders. We provide a convenient script that can load these tracts (or a subset of the tracts) into FSLEYES using different colours for the different tracts but matching the left/right colours
 
 ```
  __  _______ ____      _    ____ _____         _                        
