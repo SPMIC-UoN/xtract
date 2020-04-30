@@ -4,7 +4,7 @@
 #
 #   SHCOPYRIGHT
 
-# Written by Saad Jbabdi & Stam Sotiropoulos (based on Marius de Groot autoPtx code)
+# Written by Saad Jbabdi, Stam Sotiropoulos & Shaun Warrington (based on Marius de Groot autoPtx code)
 # Protocols created by Rogier Mars et al.
 
 # Location of probtrackx2_gpu binary
@@ -22,19 +22,24 @@ Usage:
 
     Compulsory arguments:
 
-       -bpx <folder>                     Path to bedpostx folder
-       -out <folder>                     Path to output folder
-       -species <SPECIES>                One of HUMAN or MACAQUE
+       -bpx <folder>                          Path to bedpostx folder
+       -out <folder>                          Path to output folder
+       -species <SPECIES>                     One of HUMAN or MACAQUE
 
     Optional arguments:
-       -list                             List the tract names used in XTRACT
-       -str <file>                       Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
-       -p   <folder>                     Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
-       -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
-       -gpu                              Use GPU version
-       -native                           Run tractography in native (diffusion) space
-       -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
-       -ptx_options <options.txt>	       Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+       -list                                  List the tract names used in XTRACT
+       -str <file>                            Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+       -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
+       -stdwarp <std2diff> <diff2std>         Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
+       -gpu                                   Use GPU version
+       -res <mm>                              Output resolution (Default=same as in protocol folders unless '-native' used)
+       -ptx_options <options.txt>	            Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+
+       And EITHER:
+       -native                                Run tractography in native (diffusion) space
+
+       OR:
+       -ref <refimage> <diff2ref> <ref2diff>  Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms
 
 EOF
     exit 1
@@ -70,6 +75,9 @@ ptx_opts=""
 stdref=""
 gpu=0
 nat=0
+ref=""
+diff2ref=""
+ref2diff=""
 spec=""
 res=-1
 list=0
@@ -86,6 +94,7 @@ while [ ! -z "$1" ];do
 	-stdwarp) std2diff=$2;diff2std=$3;shift;shift;;
 	-gpu) gpu=1;;
 	-native) nat=1;;
+  -ref) ref=$2;diff2ref=$3;ref2diff=$4;shift;shift;shift;;
 	-res) res=$2;shift;;
   -list) list=1;shift;;
 	-ptx_options) ptx_opts=`cat $2`;shift;;
@@ -125,6 +134,19 @@ if [ "$std2diff" == "" ];then
     if [ `$FSLDIR/bin/imtest $diff2std` -eq 0 ];then
 	echo "Image $diff2std not found."
 	exit 1
+    fi
+elif [ ! "$ref" == "" ];then
+    if [ "$diff2ref" == "" ] || [ "$ref2diff" == "" ];then
+  echo "If running in ref space, you must specify '-ref <refimage> <diff2ref> <ref2diff>'"
+  exit 1
+    fi
+    if [ `$FSLDIR/bin/imtest $diff2ref` -eq 0 ];then
+  echo "Image $diff2ref not found."
+  exit 1
+    fi
+    if [ `$FSLDIR/bin/imtest $ref2diff` -eq 0 ];then
+  echo "Image $ref2diff not found."
+  exit 1
     fi
 fi
 
@@ -226,9 +248,16 @@ if [ ! "$str" == "$strdef" ];then
     echo "samples=1, 1 means 1000. Use '#' to skip lines"
     errflag=1
   elif [ ${tchk[0]} -eq 1 ];then
-    echo "Using subset of XTRACT protocols and getting 'nsamples' from default structure file."
+    echo " -- getting 'nsamples' from default structure file"
     seedget=1
   fi
+fi
+
+# Check space option
+if [ $nat -eq 1 ] && [ ! "$ref" == "" ];then
+    echo "You have selected the native space and ref space options"
+    echo "Must select EITHER '-native', '-ref <refimage> <diff2ref> <ref2diff>', OR use the default standard space"
+    errflag=1
 fi
 
 if [ "$errflag" -eq 1 ];then
@@ -249,8 +278,17 @@ opts=" $opts --loopcheck --forcedir --opd --ompl --seedref=$stdref --sampvox=1 -
 # Add any user-defined ptx options
 opts=" $opts $ptx_opts"
 
-if [ "$nat" -eq 0 ];then
-    opts="$opts --xfm=$std2diff --invxfm=$diff2std "
+if [ "$nat" -eq 0 ] && [ "$ref" == "" ];then
+    opts="$opts --seedref=$stdref --xfm=$std2diff --invxfm=$diff2std "
+elif [ ! "$ref" == "" ]; then
+    opts="$opts --seedref=$ref --xfm=$ref2diff --invxfm=$diff2ref "
+fi
+
+# If running in reference space, combine std2diff and diff2ref for std2ref
+if [ ! "$ref" == "" ];then
+    echo " -- combining standard-to-diffusion and diffusion-to-reference transforms"
+    std2ref=$out/standard2ref
+    $FSLDIR/bin/convertwarp -o $std2ref -r $ref --warp1=$std2diff --warp2=$diff2ref
 fi
 
 # Loop over structures
@@ -290,7 +328,7 @@ while read structstring; do
 	#  DEALING WITH RESAMPLING --
 	# Pick space to run tractography in (diffusion or standard)
 	if [ "$nat" -eq 1 ];then
-	    echo " -- transforming masks into native space"
+	    echo "${struct} -- transforming masks into native space"
 	    mkdir -p $out/masks/$struct
 	    for m in seed stop exclude;do
 		if [ `$FSLDIR/bin/imtest $maskdir/$m` -eq 1 ];then
@@ -299,6 +337,16 @@ while read structstring; do
 		fi
 		eval "${m}=$out/masks/$struct/$m"
 	    done
+  elif [ ! "$ref" == "" ];then
+      echo "${struct} -- transforming masks into ref space"
+      mkdir -p $out/masks/$struct
+      for m in seed stop exclude;do
+    if [ `$FSLDIR/bin/imtest $maskdir/$m` -eq 1 ];then
+        $FSLDIR/bin/applywarp -i $maskdir/$m -o $out/masks/$struct/$m -w $std2ref -r $ref -d float
+        $FSLDIR/bin/fslmaths $out/masks/$struct/$m -thr 0.1 -bin $out/masks/$struct/$m -odt char
+    fi
+    eval "${m}=$out/masks/$struct/$m"
+      done
 	else
 	    for m in seed stop exclude;do
 		if [ $res -gt 0 ];then
@@ -325,6 +373,13 @@ while read structstring; do
 		$FSLDIR/bin/fslmaths $out/masks/$struct/$t -thr 0.1 -bin $out/masks/$struct/$t -odt char
 	    done
 	    echo $out/masks/$struct/target* > $targetfile
+  elif [ ! "$ref" == "" ];then
+      for tfile in $targets;do
+    t=`basename $tfile`
+    $FSLDIR/bin/applywarp -i $tfile -o $out/masks/$struct/$t -w $std2ref -r $ref -d float
+    $FSLDIR/bin/fslmaths $out/masks/$struct/$t -thr 0.1 -bin $out/masks/$struct/$t -odt char
+      done
+      echo $out/masks/$struct/target* > $targetfile
 	else
 	    if [ $res -gt 0 ];then
 		# Resample at a different resolution

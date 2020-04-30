@@ -46,19 +46,24 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 
      Compulsory arguments:
 
-        -bpx <folder>                     Path to bedpostx folder
-        -out <folder>                     Path to output folder
-        -species <SPECIES>                One of HUMAN or MACAQUE
+        -bpx <folder>                          Path to bedpostx folder
+        -out <folder>                          Path to output folder
+        -species <SPECIES>                     One of HUMAN or MACAQUE
 
      Optional arguments:
-        -list                             List the tract names used in XTRACT
-        -str <file>                       Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
-        -p   <folder>                     Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
-        -stdwarp <std2diff> <diff2std>    Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
-        -gpu                              Use GPU version
-        -native                           Run tractography in native (diffusion) space
-        -res <mm>                         Output resolution (Default=same as in protocol folders unless '-native' used)
-        -ptx_options <options.txt>	       Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+        -list                                  List the tract names used in XTRACT
+        -str <file>                            Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+        -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
+        -stdwarp <std2diff> <diff2std>         Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
+        -gpu                                   Use GPU version
+        -res <mm>                              Output resolution (Default=same as in protocol folders unless '-native' used)
+        -ptx_options <options.txt>	           Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+
+        And EITHER:
+        -native                                Run tractography in native (diffusion) space
+
+        OR:
+        -ref <refimage> <diff2ref> <ref2diff>  Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms
 
 ```
 ---------------------------------------------------------------------
