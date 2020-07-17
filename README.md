@@ -15,6 +15,7 @@ with help from:
 Saad Jbabdi, Kathryn Bryant, Shaun Warrington, Marina Charquero-Ballester, Gwenaelle Douaud
 
 The XTRACT viewer helper script was written by Shaun Warrington
+The XTRACT stats helper script was written by Shaun Warrington
 
 ---------------------------------------------------------------------
 
@@ -182,5 +183,50 @@ The output of XTRACT is a folder that contains tracts in separate folders. We pr
 
         -thr NUMBER NUMBER                The lower and upper thresholds applied to the tracts for viewing
                                           Default = 0.001 0.1
+
+```
+
+---------------------------------------------------------------------
+
+## Extracting tract-wise summary statistics
+
+A common usage of the XTRACT output is to summarise tracts in terms of simple summary statistics, such as their volume and microstructural properties (e.g. mean FA). We provide XTRACT stats to get such summary statistics in a quick and simple way.
+
+You can use XTRACT stats with any modelled diffusion data, e.g. DTI, bedpostx, DKI.
+
+Simply provide; the directory (and basename of files, if any) leading to the diffusion data of interest, the directory containing the XTRACT output, the warp field (or use 'native' if tracts are already in diffusion space). If tracts are not in diffusion space, you must also provide a reference image in diffusion space (e.g. FA map).
+
+e.g. call: xtract_stats -d /home/DTI/dti_ -xtract /home/xtract -w /home/warp/standard2diff -r /home/DTI/dti_FA
+
+The output (a .csv file) by default contains the tract volume (mm3) and the mean, median and standard deviation of the probability, length, FA and MD for each tract.
+
+```
+__  _______ ____      _    ____ _____    _        _
+\ \/ /_   _|  _ \    / \  / ___|_   _|__| |_ __ _| |_ ___
+ \  /  | | | |_) |  / _ \| |     | |/ __| __/ _  | __/ __|
+ /  \  | | |  _ <  / ___ \ |___  | |\__ \ || (_| | |_\__ \\
+/_/\_\ |_| |_| \_\/_/   \_\____| |_||___/\__\__ _|\__|___/
+
+
+Usage:
+    xtract_stats -d <dir_basename> -xtract <XTRACT_dir> -w <xtract2diff> [options]
+
+    Compulsory arguments:
+
+       -d <folder_basename>                   Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)
+       -xtract <folder>                       Path to XTRACT output folder
+       -w <xtract2diff>                       EITHER XTRACT results to diffusion space transform OR 'native' if tracts are already in diffusion space
+
+    Optional arguments:
+       -r <reference>                         If not 'native', provide reference image in diffusion space (e.g. /home/DTI/dti_FA)
+       -out <path>                            Output filepath (Default <XTRACT_dir>/stats.csv)
+       -str <file>                            Structures file (as in XTRACT) (Default is all tracts under <XTRACT_dir>)
+       -thr <float>                           Threshold applied to tract probability map (default = 0.001 = 0.1%)
+
+       -meas <list>                           Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)
+                                              vol = tract volume, prob = tract probability, length = tract length
+                                              Additional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'
+
+       -keepfiles                             Keep temporary files
 
 ```
