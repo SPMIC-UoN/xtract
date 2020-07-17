@@ -11,7 +11,7 @@
 ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
 
 # Location of xtract data
-datadir=$FSLDIR/etc/xtract_data
+datadir=$FSLDIR/data/xtract_data
 
 Usage() {
     cat << EOF
@@ -29,7 +29,7 @@ Usage:
     Optional arguments:
        -list                                  List the tract names used in XTRACT
        -str <file>                            Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
-       -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
+       -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/data/xtract_data/<SPECIES>)
        -stdwarp <std2diff> <diff2std>         Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
        -gpu                                   Use GPU version
        -res <mm>                              Output resolution (Default=same as in protocol folders unless '-native' used)

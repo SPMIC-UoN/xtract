@@ -56,7 +56,7 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
      Optional arguments:
         -list                                  List the tract names used in XTRACT
         -str <file>                            Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
-        -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/etc/xtract_data/<SPECIES>)
+        -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/data/xtract_data/<SPECIES>)
         -stdwarp <std2diff> <diff2std>         Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
         -gpu                                   Use GPU version
         -res <mm>                              Output resolution (Default=same as in protocol folders unless '-native' used)
@@ -108,19 +108,19 @@ Prior to running XTRACT, you must complete the FDT processing pipeline:
 3. Eddy current distortion and motion correction using eddy
 4. Fit the crossing fibre model using bedpostx
 5. Registration to standard space (MNI152), see the FDT pipeline
-6. Your data should now be ready to run XTRACT!
 
+Your data should now be ready to run XTRACT!
 
 
 ---------------------------------------------------------------------
 
 ## Atlases:
 
-- For HUMAN, XTRACT uses the MNI152 standard space in $FSLDIR/etc/standard
+- For HUMAN, XTRACT uses the MNI152 standard space in $FSLDIR/data/standard
 
 - For MACAQUE, XTRACT uses the F99 atlas in Caret - see http://brainvis.wustl.edu/wiki/index.php/Caret:Atlases
 
-  We also provide a copy of the F99 atlas in $FSLDIR/etc/xtract_data/standard/F99. This
+  We also provide a copy of the F99 atlas in $FSLDIR/data/xtract_data/standard/F99. This
   includes a helper script for registering your own diffusion/structural data to the F99 altas
 
 When running XTRACT with the '-species' option, a predefined list of tracts is automatically extracted. Currently the following tracts are available:
@@ -159,7 +159,7 @@ OR
 
 tractName nsamples, per line
 
-For an example, see $FSLDIR/etc/xtract_data/Human/structureList
+For an example, see $FSLDIR/data/xtract_data/Human/structureList
 
 ---------------------------------------------------------------------
 
@@ -240,8 +240,8 @@ stats to get such summary statistics in a quick and simple way.
 
 You can use XTRACT stats with any modelled diffusion data, e.g. DTI, bedpostx, DKI.
 
-Simply provide; the directory (and basename of files, if any) leading to the diffusion d
-ata of interest, the directory containing the XTRACT output, the warp field (or use 'native'
+Simply provide; the directory (and basename of files, if any) leading to the diffusion
+data of interest, the directory containing the XTRACT output, the warp field (or use 'native'
 if tracts are already in diffusion space). If tracts are not in diffusion space, you must also
 provide a reference image in diffusion space (e.g. FA map).
 
@@ -254,7 +254,7 @@ standard deviation of the probability, length, FA and MD for each tract.
 __  _______ ____      _    ____ _____    _        _
 \ \/ /_   _|  _ \    / \  / ___|_   _|__| |_ __ _| |_ ___
  \  /  | | | |_) |  / _ \| |     | |/ __| __/ _  | __/ __|
- /  \  | | |  _ <  / ___ \ |___  | |\__ \ || (_| | |_\__ \\
+ /  \  | | |  _ <  / ___ \ |___  | |\__ \ || (_| | |_\__ \
 /_/\_\ |_| |_| \_\/_/   \_\____| |_||___/\__\__ _|\__|___/
 
 
