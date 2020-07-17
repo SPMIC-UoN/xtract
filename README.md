@@ -77,12 +77,12 @@ XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB. For opt
 
 **Outputs of XTRACT**
 
-Under <outputDir>:
+Under outputDir:
 
 - "commands.txt" - XTRACT processing commands
 - "logs" - directory containing the probtrackx log files
 - "tracts" - directory continaing tractography results
-  - "<tractName>" - directory per tract, each continaing:
+  - "tractName" - directory per tract, each continaing:
   - "waytotal" - txt file continaing the number of valid streamlines
   - "density.nii.gz" - nifti file containing the fibre probability distribution
   - "density_lenths.nii.gz" - nifti file containing the fibre lengths, i.e. each voxel is the
@@ -94,7 +94,7 @@ Under <outputDir>:
     - "sum_waytotal" and "sum_density.nii.gz" - the summed waytotal and fibre probability distribution
   - If the "-native" option is being used:
     - "masks" - directory
-    - "<tractName>" - directory per tract continaing the native space protocol masks
+    - "tractName" - directory per tract continaing the native space protocol masks
 
 The primary output is the "densityNorm.nii.gz" file.
 
@@ -186,8 +186,8 @@ Then create the following NIFTI files (with this exact naming) and copy them int
 All the masks above should be in standard space (e.g. MNI152 or F99) if you want to run
 the same tracking for a collection of subjects.
 
-Next, make a structure file using the format <tractName> <nsamples> per line and call XTRACT
-using -species <SPECIES> -str <file> -p <folder>, pointing to your new protocols folder 'mytrack'.
+Next, make a structure file using the format `<tractName> <nsamples>` per line and call XTRACT
+using `-species <SPECIES> -str <file> -p <folder>`, pointing to your new protocols folder 'mytrack'.
 
 ---------------------------------------------------------------------
 
