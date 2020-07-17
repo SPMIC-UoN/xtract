@@ -99,7 +99,7 @@ if [ "$spec" == "" ];then
 elif [ $spec == HUMAN ];then
     brain=${FSLDIR}/data/standard/FSL_HCP1065_FA_1mm.nii.gz
 elif [ $spec == MACAQUE ];then
-    brain=${FSLDIR}/etc/xtract_data/standard/F99/mri/struct_brain.nii.gz
+    brain=${FSLDIR}/data/xtract_data/standard/F99/mri/struct_brain.nii.gz
 elif [ ! "$spec" == "HUMAN" ] && [ ! "$spec" == "MACAQUE" ];then
   echo "Unrecognised option '$spec'. Must set '-species' using HUMAN or MACAQUE"
   errflag=1
