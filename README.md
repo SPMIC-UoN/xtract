@@ -70,8 +70,47 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 ---------------------------------------------------------------------
 
 ## Running XTRACT:
-  XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB.
-  For optimal performance, use the GPU version!!!!
+
+XTRACT automatically detects if $SGE_ROOT is set and if so uses FSL_SUB. For optimal performance, use the GPU version!!!!
+
+Outputs of XTRACT
+
+Under <outputDir>:
+
+- "commands.txt" - XTRACT processing commands
+- "logs" - directory containing the probtrackx log files
+- "tracts" - directory continaing tractography results
+-- "<tractName>" - directory per tract, each continaing:
+-- "waytotal" - txt file continaing the number of valid streamlines
+-- "density.nii.gz" - nifti file containing the fibre probability distribution
+-- "density_lenths.nii.gz" - nifti file containing the fibre lengths, i.e. each voxel is the average streamline length - this is the "-ompl" probtrackx option
+-- "densityNorm.nii.gz" - nifti file continaing the waytotal normalised fibre probability distribution (the "density.nii.gz" divided by the total number of valid streamlines)
+-- If the protocol calls for reverse-seeding:
+--- "tractsInv" - directory continaing the above for the seed-target reversed run
+--- "sum_waytotal" and "sum_density.nii.gz" - the summed waytotal and fibre probability distribution
+-- If the "-native" option is being used:
+--- "masks" - directory
+--- "<tractName>" - directory per tract continaing the native space protocol masks
+
+The primary output is the "densityNorm.nii.gz" file.
+
+Pre-processing
+
+Prior to running XTRACT, you must complete the FDT processing pipeline:
+
+Brain extraction using BET
+
+Susceptibility distortion correction using topup (only if spin-echo fieldmaps have been acquired - if you don't have these, skip to step 3)
+
+Eddy current distortion and motion correction using eddy
+
+Fit the crossing fibre model using bedpostx
+
+Registration to standard space (MNI152), see the FDT pipeline
+
+Your data should now be ready to run XTRACT!
+
+
 
 ---------------------------------------------------------------------
 
