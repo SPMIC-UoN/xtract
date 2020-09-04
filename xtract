@@ -18,19 +18,26 @@ Usage() {
 
 Usage:
     xtract -bpx <bedpostX_dir> -out <outputDir> -species <SPECIES> [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species CUSTOM -str <file> -p <folder> -stdref <reference> [options]
     xtract -list
 
     Compulsory arguments:
 
        -bpx <folder>                          Path to bedpostx folder
        -out <folder>                          Path to output folder
-       -species <SPECIES>                     One of HUMAN or MACAQUE
+       -species <SPECIES>                     One of HUMAN or MACAQUE or CUSTOM
+
+    If -species CUSTOM:
+      -str <file>                            Structures file (format: format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+      -p <folder>                            Protocols folder (all masks in same standard space)
+      -stdref <reference>                    Standard space reference image
 
     Optional arguments:
        -list                                  List the tract names used in XTRACT
        -str <file>                            Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
        -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/data/xtract_data/<SPECIES>)
        -stdwarp <std2diff> <diff2std>         Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff,diff2standard})
+       -stdref <reference>                    Standard space reference image (Default = $FSLDIR/data/standard/MNI152_T1_1mm [HUMAN], $datadir/standard/F99/mri/struct_brain [MACAQUE])
        -gpu                                   Use GPU version
        -res <mm>                              Output resolution (Default=same as in protocol folders unless '-native' used)
        -ptx_options <options.txt>	            Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
@@ -44,7 +51,6 @@ Usage:
 EOF
     exit 1
 }
-
 
 Splash (){
 
@@ -92,6 +98,7 @@ while [ ! -z "$1" ];do
 	-p)   p=$2;shift;;
 	-species) spec=$2;shift;;  # converts to uppercase
 	-stdwarp) std2diff=$2;diff2std=$3;shift;shift;;
+  -stdref) stdref=$2;shift;;
 	-gpu) gpu=1;;
 	-native) nat=1;;
   -ref) ref=$2;diff2ref=$3;ref2diff=$4;shift;shift;shift;;
@@ -179,7 +186,9 @@ if [ "$spec" == "" ];then
   echo "Must set compulsory argument '-species'"
   errflag=1
 elif [ "$spec" == "HUMAN" ];then
-    stdref=$FSLDIR/data/standard/MNI152_T1_1mm
+    if [ "$stdref" == "" ];then
+        stdref=$FSLDIR/data/standard/MNI152_T1_1mm
+    fi
     strdef=$datadir/Human/structureList
     if [ "$p" == "" ];then
       p=$datadir/Human
@@ -193,7 +202,9 @@ elif [ "$spec" == "HUMAN" ];then
       fi
     fi
 elif [ "$spec" == "MACAQUE" ];then
-    stdref=$datadir/standard/F99/mri/struct_brain
+    if [ "$stdref" == "" ];then
+        stdref=$datadir/standard/F99/mri/struct_brain
+    fi
     strdef=$datadir/Macaque/structureList
     if [ "$p" == "" ];then
       p=$datadir/Macaque
@@ -206,12 +217,29 @@ elif [ "$spec" == "MACAQUE" ];then
         errflag=1
       fi
     fi
+elif [ "$spec" == "CUSTOM" ];then
+    if [ "$stdref" == "" ];then
+        echo "If -species CUSTOM, must set argument '-stdref'"
+        errflag=1
+    fi
+    if [ "$p" == "" ];then
+        echo "If -species CUSTOM, must set argument '-p'"
+        errflag=1
+    fi
+    if [ "$str" == "" ];then
+        echo "If -species CUSTOM, must set argument '-str'"
+        errflag=1
+    fi
 else
-    echo "Species must be one of HUMAN or MACAQUE"
+    echo "Species must be one of HUMAN or MACAQUE or CUSTOM"
     errflag=1
 fi
 
-# Check that -str and -p exist
+# Check that -stdref, -str and -p exist
+if [ ! `$FSLDIR/bin/imtest $stdref` -eq 1 ];then
+  echo "Standard space reference image '-stdref' $stdref not found"
+  errflag=1
+fi
 if [ ! -d $p ];then
   echo "Protocol folder $p not found"
   errflag=1
@@ -221,7 +249,14 @@ if [ ! -f $str ];then
   errflag=1
 fi
 
+if [ "$errflag" -eq 1 ];then
+    echo ""
+    echo "Exit without doing anything.."
+    exit 1
+fi
+
 # Check -str file format
+if [ "$spec" == "HUMAN" ] || [ "$spec" == "MACAQUE" ];then
 tchk=()
 if [ ! "$str" == "$strdef" ];then
   while read structstring; do
@@ -251,6 +286,24 @@ if [ ! "$str" == "$strdef" ];then
     echo " -- getting 'nsamples' from default structure file"
     seedget=1
   fi
+fi
+elif [ "$spec" == "CUSTOM" ];then
+# add in check for str file format, user must provide number of seeds
+  while read structstring; do
+    struct=`echo $structstring | awk '{print $1}'`
+    if [ "${struct:0:1}" == "#" ];then
+    foo=0
+    elif [ "$struct" == "" ];then
+    foo=0
+    else
+      if [ "`echo $structstring | awk '{print $2}'`" == "" ];then
+      echo "If using -species CUSTOM -str file format must follow:"
+      echo "<tractName> [samples=1] per line"
+      echo "samples=1, 1 means 1000. Use '#' to skip lines"
+      errflag=1
+      fi
+    fi
+  done < $str
 fi
 
 # Check space option
