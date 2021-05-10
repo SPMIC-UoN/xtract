@@ -464,7 +464,16 @@ while read structstring; do
        	    o1=" $o1 --waypoints=$targetfile "
 	fi
 
-        # Outputs
+  if [ -e "$maskdir/wayorder" ]; then
+      o1=" $o1 --wayorder "
+  fi
+
+  if [ -e "$maskdir/wayorder" ] && [ -e "$maskdir/invert" ]; then
+    echo "Invert and wayorder options selected. Cannot use both! Exiting now"
+    exit 1
+  fi
+
+  # Outputs
 	o1=" $o1 -o density --dir=$out/tracts/$struct"
 
 
