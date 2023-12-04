@@ -1,0 +1,143 @@
+#!/bin/bash
+
+#   Copyright (C) 2020 University of Oxford
+#
+#   SHCOPYRIGHT
+
+# Written by Shaun Warrington
+
+
+Splash (){
+cat <<EOF
+
+XTRACT WGB helper:
+
+Prepares MNI-space white-grey boundary (WGB) from T1w image (human brain only) ready for xtract_blueprint.
+
+EOF
+}
+Splash
+
+Usage() {
+    cat << EOF
+
+Usage:
+    get_wgb -T1 <image> -out <folder> [options]
+
+    Compulsory arguments:
+
+       -T1        <image>                           Path to T1w image
+       -out       <folder>                          Path to output folder
+
+    Optional arguments:
+
+       -res       <float>                           WGB resolution in mm (default = 2 mm)
+
+       -keepfiles                                   Keep intermediate files
+       -keepcereb                                   Do not remove the cerebelllum
+
+EOF
+    exit 1
+}
+
+[ "$1" = "" ] && Usage
+
+# Set default options
+T1=""
+out=""
+xtract=""
+keepfiles=0
+keepcereb=0
+res=2
+
+# Parse command-line arguments
+while [ ! -z "$1" ];do
+    case "$1" in
+	-T1) T1=$2;shift;;
+	-out) out=$2;shift;;
+	-keepfiles) keepfiles=1;;
+  -keepcereb) keepcereb=1;;
+  -res) res=$2;shift;;
+	*) echo "Unknown option '$1'";exit 1;;
+    esac
+    shift
+done
+
+# Check compulsory arguments
+errflag=0
+if [ "$T1" == "" ];then
+    echo "Must set compulsory argument '-T1'"
+    errflag=1
+elif [ `$FSLDIR/bin/imtest $T1` -eq 0 ];then
+    echo "T1w image $T1 not found"
+    errflag=1
+fi
+if [ "$out" == "" ];then
+    echo "Must set compulsory argument '-out'"
+    errflag=1
+fi
+
+if (( $(echo "$res < 2" | bc -l) ));then
+    echo "Warning: final resolution of WGB is ${res} mm - this is likely to require a lot of memory during xtract_blueprint processing"
+fi
+
+ref="${FSLDIR}/data/standard/MNI152_T1_2mm_brain.nii.gz"
+fastseg="${out}/T1.anat/T1_fast_pve"
+subcort="${out}/T1.anat/T1_subcort_seg"
+ho_atlas="${FSLDIR}/data/atlases/HarvardOxford/HarvardOxford-sub-prob-2mm.nii.gz"
+cerebelllum_atlas="${FSLDIR}/data/atlases/Cerebellum/Cerebellum-MNIfnirt-maxprob-thr25-2mm.nii.gz"
+vol_seed="${fastseg}_wgb"
+
+# Run fslanat for segmentations and warp fields
+$FSLDIR/bin/fsl_anat -i $T1 -o ${out}/T1
+
+# binarise and expand subcortical segmentation
+$FSLDIR/bin/fslmaths $subcort -bin ${subcort}_dilate
+
+# use HarvardOxford to remove ventricles and brainstem
+$FSLDIR/bin/applywarp -i ${ho_atlas} -o ${out}/T1.anat/ho_atlas -r ${out}/T1.anat/T1 -w ${out}/T1.anat/MNI_to_T1_nonlin_field.nii.gz
+$FSLDIR/bin/fslroi ${out}/T1.anat/ho_atlas ${out}/T1.anat/LVentricle 2 1
+$FSLDIR/bin/fslroi ${out}/T1.anat/ho_atlas ${out}/T1.anat/RVentricle 13 1
+$FSLDIR/bin/fslroi ${out}/T1.anat/ho_atlas ${out}/T1.anat/brainstem 7 1
+$FSLDIR/bin/fslmaths ${out}/T1.anat/brainstem -thr 10 -bin -dilF ${out}/T1.anat/brainstem
+$FSLDIR/bin/fslmaths ${out}/T1.anat/LVentricle -add ${out}/T1.anat/RVentricle -thr 10 -bin -dilF ${out}/T1.anat/VentricleMask
+
+cereb_cmd=""
+if [ $keepcereb == 0 ];then
+    # use cerebelllum atlas also
+    $FSLDIR/bin/applywarp -i ${cerebelllum_atlas} -o ${out}/T1.anat/cerebelllum_atlas -r ${out}/T1.anat/T1 -w ${out}/T1.anat/MNI_to_T1_nonlin_field.nii.gz
+    $FSLDIR/bin/fslmaths ${out}/T1.anat/cerebelllum_atlas -dilF -bin ${out}/T1.anat/cerebelllum_atlas
+    $FSLDIR/bin/fslmaths ${out}/T1.anat/cerebelllum_atlas -fillh ${out}/T1.anat/cerebelllum_atlas
+    $FSLDIR/bin/fslmaths ${out}/T1.anat/cerebelllum_atlas -kernel boxv3 1 3 3 -dilM ${out}/T1.anat/cerebelllum_atlas
+    $FSLDIR/bin/fslmaths ${out}/T1.anat/cerebelllum_atlas -bin -fillh ${out}/T1.anat/cereb
+    cereb_cmd="-sub ${out}/T1.anat/cereb"
+fi
+
+# now WM mask + ventricle mask + subcortical mask - brainstem mask - cerebelllum mask
+$FSLDIR/bin/fslmaths ${fastseg}_2 -add ${subcort}_dilate -add ${out}/T1.anat/VentricleMask -thr 0.4 -bin ${vol_seed}
+$FSLDIR/bin/fslmaths ${vol_seed} ${cereb_cmd} -sub ${out}/T1.anat/brainstem -thr 0.4 -fillh ${vol_seed}
+$FSLDIR/bin/fslmaths ${vol_seed} -dilM -ero ${vol_seed}
+
+# use cluster to find non-brain islands (typically noise, vessels and optic nerve) and remove
+$FSLDIR/bin/cluster -i ${vol_seed} -t 0.1 -o ${out}/T1.anat/cluster_index > ${out}/T1.anat/cluster_info.txt
+cluster_keep=`cat ${out}/T1.anat/cluster_info.txt | awk '{print $1}' | sed -n 2p`
+cluster_keep_nvox=`cat ${out}/T1.anat/cluster_info.txt | awk '{print $2}' | sed -n 2p`
+$FSLDIR/bin/fslmaths -dt int ${out}/T1.anat/cluster_index -thr ${cluster_keep} -uthr ${cluster_keep} -bin ${vol_seed}
+
+# generate edge map, i.e. the WGB
+$FSLDIR/bin/fslmaths ${vol_seed} -edge -bin ${vol_seed}
+
+# warp edge mask to MNI
+$FSLDIR/bin/applywarp -i ${vol_seed} -o ${out}/wgb_mni -r $ref -w ${out}/T1.anat/T1_to_MNI_nonlin_field.nii.gz
+
+# and downsample edge mask for quicker tracking
+if (( $(echo "$res != 2" | bc -l) ));then
+    $FSLDIR/bin/flirt -in ${out}/wgb_mni  -ref ${out}/wgb_mni  -out ${out}/wgb_mni -applyisoxfm ${res}
+    $FSLDIR/bin/fslmaths ${out}/wgb_mni  -thr 0.1 -bin ${out}/wgb_mni
+fi
+
+if [ $keepfiles == 0 ];then
+    rm -rf ${out}/T1.anat
+fi
+
+echo "Final WGB seed mask: ${out}/wgb_mni.nii.gz"

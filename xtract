@@ -1,0 +1,563 @@
+#!/bin/bash
+
+#   Copyright (C) 2019 University of Oxford
+#
+#   SHCOPYRIGHT
+
+# Written by Shaun Warrington, Saad Jbabdi & Stam Sotiropoulos (based on Marius de Groot autoPtx code)
+# Human and Macaque protocols created by Rogier Mars et al.
+# Neonate protocols created by Ellie Thompson et al.
+
+ptxbin_gpu="$FSLDIR/bin/probtrackx2_gpu" # Location of probtrackx2_gpu binary
+datadir="$FSLDIR/data/xtract_data" # Location of xtract data
+
+Usage() {
+    cat << EOF
+
+Usage:
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species <SPECIES> [options]
+    xtract -bpx <bedpostX_dir> -out <outputDir> -species CUSTOM -str <file> -p <folder> -stdref <reference> [options]
+    xtract -list
+
+    Compulsory arguments:
+
+       -bpx <folder>                          Path to bedpostx folder
+       -out <folder>                          Path to output folder
+       -species <SPECIES>                     One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM
+
+    If -species CUSTOM:
+      -str <file>                            Structures file (format: format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+      -p <folder>                            Protocols folder (all masks in same standard space)
+      -stdref <reference>                    Standard space reference image
+
+    Optional arguments:
+       -list                                  List the tract names used in XTRACT
+       -str <file>                            Structures file (format: <tractName> per line OR format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)
+       -p <folder>                            Protocols folder (all masks in same standard space) (Default=$FSLDIR/data/xtract_data/<SPECIES>)
+       -stdwarp <std2diff> <diff2std>         Non-linear Standard2diff and Diff2standard transforms (Default=bedpostx_dir/xfms/{standard2diff_warp.nii.gz,diff2standard_warp.nii.gz})
+       -stdref <reference>                    Standard space reference image (Default = $FSLDIR/data/standard/MNI152_T1_1mm [HUMAN], $datadir/standard/F99/mri/struct_brain [MACAQUE], $datadir/standard/neonate/schuh_template [HUMAN_BABY])
+       -gpu                                   Use GPU version
+       -par                                   If cluster, run in parallel: submit 1 job per tract
+       -res <mm>                              Output resolution (Default=same as in protocol folders unless '-native' used)
+       -ptx_options <options.txt>	            Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)
+
+       And EITHER:
+       -native                                Run tractography in native (diffusion) space
+
+       OR:
+       -ref <refimage> <diff2ref> <ref2diff>  Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms
+
+EOF
+    exit 1
+}
+
+Splash (){
+
+cat <<EOF
+
+ __  _______ ____      _    ____ _____
+ \ \/ /_   _|  _ \    / \  / ___|_   _|
+  \  /  | | | |_) |  / _ \| |     | |
+  /  \  | | |  _ <  / ___ \ |___  | |
+ /_/\_\ |_| |_| \_\/_/   \_\____| |_|
+
+EOF
+
+}
+
+Splash
+
+[ -z "$1" ] && Usage
+
+# Set default options
+bpx=""
+out=""
+str=""
+p=""
+std2diff=""
+ptx_opts=""
+stdref=""
+gpu=0
+nat=0
+ref=""
+diff2ref=""
+ref2diff=""
+spec=""
+res=-1
+list=0
+par=0
+seedget=0 # if user specifies -str and format is <tractName>, try to get nseeds from default structureList (i.e. if using a subset of XTRACT tracts)
+
+# Parse command-line arguments
+while [ -n "$1" ];do
+    case "$1" in
+	-bpx) bpx=$2;shift;;
+	-out) out=$2;shift;;
+	-str) str=$2;shift;;
+	-p)   p=$2;shift;;
+	-species) spec=$2;shift;;  # converts to uppercase
+	-stdwarp) std2diff=$2;diff2std=$3;shift;shift;;
+  -stdref) stdref=$2;shift;;
+	-gpu) gpu=1;;
+  -par) par=1;;
+	-native) nat=1;;
+  -ref) ref=$2;diff2ref=$3;ref2diff=$4;shift;shift;shift;;
+	-res) res=$2;shift;;
+  -list) list=1;shift;;
+	-ptx_options) ptx_opts=`cat "$2"`;shift;;
+	*) echo "Unknown option '$1'";exit 1;;
+    esac
+    shift
+done
+
+# list argument
+if [ "$list" -eq 1 ];then
+    tractNames=""
+    echo ""
+    echo "Tract names:"
+    while read structstring; do
+      struct=`echo $structstring | awk '{print $1}'`
+      if [ "${struct:0:1}" == "#" ];then
+    	foo=0
+      elif [ "$struct" == "" ];then
+    	foo=0
+      else
+      tractNames="${tractNames} ${struct},"
+      fi
+    done < "$datadir/Human/structureList"
+    echo ${tractNames%,}
+    exit 1
+fi
+
+# Default warps
+if [ -z "$std2diff" ];then
+  # Accept either standard2diff_warp.nii.gz
+  # or standard2diff.nii.gz (and vice versa)
+  for std2diff in $bpx/xfms/standard2diff_warp $bpx/xfms/standard2diff; do
+    if [ $($FSLDIR/bin/imtest "$std2diff") -eq 1 ];then
+      break
+    fi
+  done
+  for diff2std in $bpx/xfms/diff2standard_warp $bpx/xfms/diff2standard; do
+    if [ $($FSLDIR/bin/imtest "$diff2std") -eq 1 ];then
+      break
+    fi
+  done
+
+  if [ `$FSLDIR/bin/imtest "$std2diff"` -eq 0 ];then
+	echo "Image $std2diff not found."
+	exit 1
+  fi
+  if [ `$FSLDIR/bin/imtest "$diff2std"` -eq 0 ];then
+	echo "Image $diff2std not found."
+	exit 1
+  fi
+elif [ ! "$ref" == "" ];then
+  if [ "$diff2ref" == "" ] || [ "$ref2diff" == "" ];then
+    echo "If running in ref space, you must specify '-ref <refimage> <diff2ref> <ref2diff>'"
+    exit 1
+  fi
+  if [ `$FSLDIR/bin/imtest "$diff2ref"` -eq 0 ];then
+    echo "Image $diff2ref not found."
+    exit 1
+  fi
+  if [ `$FSLDIR/bin/imtest "$ref2diff"` -eq 0 ];then
+    echo "Image $ref2diff not found."
+    exit 1
+  fi
+fi
+
+if [ "${std2diff#*.}" == "mat" ] || [ "${diff2std#*.}" == "mat" ] || [ "${diff2ref#*.}" == "mat" ] || [ "${ref2diff#*.}" == "mat" ];then
+  echo ""
+  echo "WARNING: warp files are .mat"
+  echo "Non-linear .nii.gz warp files are strongly recommended"
+  echo "XTRACT performance will be significantly reduced if using linear registrations"
+  echo ""
+fi
+
+echo SPECIES $spec
+
+# GPU stuff
+if [ $gpu -eq 0 ];then
+    ptxbin="$FSLDIR/bin/probtrackx2"
+else
+    # Temp location of CUDA code
+    ptxbin="${ptxbin_gpu}"
+fi
+
+# Check compulsory arguments
+errflag=0
+if [ -z "$bpx" ];then
+    echo "Must set compulsory argument '-bpx'"
+    errflag=1
+elif [ ! -d "$bpx" ];then
+    echo "Bedpostx folder $bpx not found"
+    errflag=1
+fi
+if [ -z "$out" ];then
+    echo "Must set compulsory argument '-out'"
+    errflag=1
+fi
+
+# Check which species and protocols to run
+if [ -z "$spec" ];then
+  echo "Must set compulsory argument '-species'"
+  errflag=1
+elif [ "$spec" == "HUMAN" ];then
+    if [ -z "$stdref" ];then
+        stdref="$FSLDIR/data/standard/MNI152_T1_1mm"
+    fi
+    strdef="$datadir/Human/structureList"
+    if [ -z "$p" ];then
+      p="$datadir/Human"
+      if [ -z "$str" ];then
+        str="$p/structureList"
+      fi
+    elif [ -n "$p" ];then
+      if [ -z "$str" ];then
+        echo "If selecting a protocol folder, must set argument '-str'"
+        errflag=1
+      fi
+    fi
+elif [ "$spec" == "MACAQUE" ];then
+    if [ -z "$stdref" ];then
+        stdref="$datadir/standard/F99/mri/struct_brain"
+    fi
+    strdef="$datadir/Macaque/structureList"
+    if [ -z "$p" ];then
+      p="$datadir/Macaque"
+      if [ -z "$str" ];then
+        str="$p/structureList"
+      fi
+    elif [ -n "$p" ];then
+      if [ -z "$str" ];then
+        echo "If selecting a protocol folder, must set argument '-str'"
+        errflag=1
+      fi
+    fi
+elif [ "$spec" == "HUMAN_BABY" ];then
+    if [ -z "$stdref" ];then
+        stdref="$datadir/standard/Schuh40week/mri/schuh_lowres"
+    fi
+    strdef="$datadir/Baby/structureList"
+    if [ -z "$p" ];then
+      p="$datadir/Baby"
+      if [ -z "$str" ];then
+        str="$p/structureList"
+      fi
+    elif [ -n "$p" ];then
+      if [ -z "$str" ];then
+        echo "If selecting a protocol folder, must set argument '-str'"
+        errflag=1
+      fi
+    fi
+elif [ "$spec" == "CUSTOM" ];then
+    if [ -z "$stdref" ];then
+        echo "If -species CUSTOM, must set argument '-stdref'"
+        errflag=1
+    fi
+    if [ -z "$p" ];then
+        echo "If -species CUSTOM, must set argument '-p'"
+        errflag=1
+    fi
+    if [ -z "$str" ];then
+        echo "If -species CUSTOM, must set argument '-str'"
+        errflag=1
+    fi
+else
+    echo "Species must be one of HUMAN or MACAQUE or CUSTOM"
+    errflag=1
+fi
+
+# Check that -stdref, -str and -p exist
+if [ ! `$FSLDIR/bin/imtest $stdref` -eq 1 ];then
+  echo "Standard space reference image '-stdref' $stdref not found"
+  errflag=1
+fi
+if [ ! -d "$p" ];then
+  echo "Protocol folder $p not found"
+  errflag=1
+fi
+if [ ! -f "$str" ];then
+  echo "Structures files $str not found"
+  errflag=1
+fi
+
+if [ "$errflag" -eq 1 ];then
+    echo ""
+    echo "Exit without doing anything.."
+    exit 1
+fi
+
+# Check -str file format
+if [ "$spec" == "HUMAN" ] || [ "$spec" == "MACAQUE" ] || [ "$spec" == "HUMAN_BABY" ];then
+tchk=()
+if [ ! "$str" == "$strdef" ];then
+  while read structstring; do
+    struct=`echo $structstring | awk '{print $1}'`
+    if [ "${struct:0:1}" == "#" ];then
+  	foo=0
+    elif [ -z "$struct" ];then
+  	foo=0
+    else
+      if [ "`echo $structstring | awk '{print $2}'`" == "" ];then
+      tchk+=("1") # if empty, then 1 - get nseeds from default -str file
+      else
+      tchk+=("0")
+      fi
+    fi
+  done < "$str"
+  IFS=$'\n'; tchk=($(sort <<<"${tchk[*]}")); unset IFS
+  if [ ! "${tchk[0]}" -eq "${tchk[${#tchk[@]}-1]}" ];then
+    echo ""
+    echo "-str file format is inconsistent. Format should be either:"
+    echo "<tractName> per line"
+    echo "OR"
+    echo "<tractName> [samples=1] per line"
+    echo "samples=1, 1 means 1000. Use '#' to skip lines"
+    errflag=1
+  elif [ ${tchk[0]} -eq 1 ];then
+    echo " -- getting 'nsamples' from default structure file"
+    seedget=1
+  fi
+fi
+elif [ "$spec" == "CUSTOM" ];then
+# add in check for str file format, user must provide number of seeds
+  while read structstring; do
+    struct=`echo $structstring | awk '{print $1}'`
+    if [ "${struct:0:1}" == "#" ];then
+    foo=0
+    elif [ -z "$struct" ];then
+    foo=0
+    else
+      if [ "`echo $structstring | awk '{print $2}'`" == "" ];then
+      echo "If using -species CUSTOM -str file format must follow:"
+      echo "<tractName> [samples=1] per line"
+      echo "samples=1, 1 means 1000. Use '#' to skip lines"
+      errflag=1
+      fi
+    fi
+  done < "$str"
+fi
+
+# Check space option
+if [ $nat -eq 1 ] && [ -n "$ref" ];then
+    echo "You have selected the native space and ref space options"
+    echo "Must select EITHER '-native', '-ref <refimage> <diff2ref> <ref2diff>', OR use the default standard space"
+    errflag=1
+fi
+
+if [ "$errflag" -eq 1 ];then
+    echo ""
+    echo "Exit without doing anything.."
+    exit 1
+fi
+
+# Create output folders
+mkdir -p "$out"
+mkdir -p "$out/logs"
+mkdir -p "$out/tracts"
+
+# Set common ptx options
+opts=" -s $bpx/merged -m $bpx/nodif_brain_mask -V 1"
+opts=" $opts --loopcheck --forcedir --opd --ompl --seedref=$stdref --sampvox=1 --randfib=1 "
+
+# Add any user-defined ptx options
+opts=" $opts $ptx_opts"
+
+if [ "$nat" -eq 0 ] && [ -z "$ref" ];then
+    opts="$opts --seedref=$stdref --xfm=$std2diff --invxfm=$diff2std "
+elif [ -n "$ref" ]; then
+    opts="$opts --seedref=$ref --xfm=$ref2diff --invxfm=$diff2ref "
+fi
+
+# If running in reference space, combine std2diff and diff2ref for std2ref
+if [ -n "$ref" ];then
+    echo " -- combining standard-to-diffusion and diffusion-to-reference transforms"
+    std2ref="$out/standard2ref"
+    $FSLDIR/bin/convertwarp -o "$std2ref" -r "$ref" "--warp1=$std2diff" "--warp2=$diff2ref"
+fi
+
+# Loop over structures
+commands="$out/commands.txt"
+rm -rf "$commands"
+echo "Preparing submission script..."
+while read structstring; do
+  struct=`echo $structstring | awk '{print $1}'`
+  # skip empty lines and lines that start with '#'
+  if [ "${struct:0:1}" == "#" ];then
+	# do nothing
+	foo=0
+	#echo "----- Skip line $structstring -----"
+  elif [ -z "$struct" ];then
+	# do nothing
+	foo=0
+	#echo "----- Skip empty line -----"
+  else
+	#echo "autoTrack $struct"
+	mkdir -p "$out/tracts/$struct"
+
+  # if running a subset of tracts and -str format is <tractName>, check for nseed in str file
+  if [ "$seedget" -eq 1 ]; then
+      nseed=`grep -w ${struct} $strdef | awk '{print $2}'`
+      if [ -z "$nseed" ];then
+        echo "Couldn't find number of samples for '$struct'. Exiting now."
+        exit 1
+      fi
+  else
+	    nseed=`echo $structstring | awk '{print $2}'`
+	    if [ -z "$nseed" ];then nseed=1; fi
+  fi
+	nseed=$(echo "scale=0; 1000 * ${nseed} / 1"|bc)
+
+	maskdir="$p/$struct"
+
+	#  DEALING WITH RESAMPLING --
+	# Pick space to run tractography in (diffusion or standard)
+	if [ "$nat" -eq 1 ];then
+	    echo "${struct} -- transforming masks into native space"
+	    mkdir -p "$out/masks/$struct"
+	    for m in seed stop exclude;do
+		if [ `$FSLDIR/bin/imtest "$maskdir/$m"` -eq 1 ];then
+		    $FSLDIR/bin/applywarp -i "$maskdir/$m" -o "$out/masks/$struct/$m" -w "$std2diff" -r "$bpx/nodif_brain_mask" -d float
+		    $FSLDIR/bin/fslmaths "$out/masks/$struct/$m" -thr 0.1 -bin "$out/masks/$struct/$m" -odt char
+		fi
+		eval "${m}=$out/masks/$struct/$m"
+	    done
+  elif [ ! "$ref" == "" ];then
+      echo "${struct} -- transforming masks into ref space"
+      mkdir -p "$out/masks/$struct"
+      for m in seed stop exclude;do
+    if [ `$FSLDIR/bin/imtest "$maskdir/$m"` -eq 1 ];then
+        $FSLDIR/bin/applywarp -i "$maskdir/$m" -o "$out/masks/$struct/$m" -w "$std2ref" -r "$ref" -d float
+        $FSLDIR/bin/fslmaths "$out/masks/$struct/$m" -thr 0.1 -bin "$out/masks/$struct/$m" -odt char
+    fi
+    eval "${m}=$out/masks/$struct/$m"
+      done
+	else
+	    for m in seed stop exclude;do
+		if (( $(echo "$res > 0" | bc -l) ));then
+		    # Resample at a different resolution
+		    mkdir -p "$out/masks/$struct"
+		    if [ `$FSLDIR/bin/imtest "$maskdir/$m"` -eq 1 ];then
+			$FSLDIR/bin/flirt -in "$maskdir/$m" -out "$out/masks/$struct/$m" -applyisoxfm "$res" -ref "$maskdir/$m"
+			$FSLDIR/bin/fslmaths "$out/masks/$struct/$m" -thr 0.1 -bin "$out/masks/$struct/$m" -odt char
+		    fi
+		    eval "${m}=$out/masks/$struct/$m"
+		else
+		    eval "${m}=$maskdir/$m"
+		fi
+	    done
+	fi
+
+	# Deal with targets (in cases where there may be more than one)
+	targets=`$FSLDIR/bin/imglob "$maskdir"/target*`
+	targetfile="$out/tracts/$struct/targets.txt"
+	if [ "$nat" -eq 1 ];then
+	    for tfile in $targets;do
+		t=`basename "$tfile"`
+		$FSLDIR/bin/applywarp -i "$tfile" -o "$out/masks/$struct/$t" -w "$std2diff" -r "$bpx/nodif_brain_mask" -d float
+		$FSLDIR/bin/fslmaths "$out/masks/$struct/$t" -thr 0.1 -bin "$out/masks/$struct/$t" -odt char
+	    done
+	    echo $out/masks/$struct/target* > "$targetfile"
+  elif [ ! "$ref" == "" ];then
+      for tfile in $targets;do
+    t=`basename "$tfile"`
+    $FSLDIR/bin/applywarp -i "$tfile" -o "$out/masks/$struct/$t" -w "$std2ref" -r "$ref" -d float
+    $FSLDIR/bin/fslmaths "$out/masks/$struct/$t" -thr 0.1 -bin "$out/masks/$struct/$t" -odt char
+      done
+      echo $out/masks/$struct/target* > "$targetfile"
+	else
+	    if (( $(echo "$res > 0" | bc -l) ));then
+		# Resample at a different resolution
+		for tfile in $targets;do
+		    t=`basename "$tfile"`
+		    $FSLDIR/bin/flirt -in "$tfile" -out "$out/masks/$struct/$t" -applyisoxfm "$res" -ref "$tfile"
+		    $FSLDIR/bin/fslmaths "$out/masks/$struct/$t" -thr 0.1 -bin "$out/masks/$struct/$t" -odt char
+		done
+		echo $out/masks/$struct/target* > "$targetfile"
+	    else
+		echo $targets > "$targetfile"
+	    fi
+	fi
+
+	# Get generic options
+	o=$opts
+  # Add inclusion/exclusion masks
+	if [ `$FSLDIR/bin/imtest "$stop"` -eq 1 ];then
+	    o="$o --stop=$stop"
+	fi
+	if [ `$FSLDIR/bin/imtest "$exclude"` -eq 1 ];then
+	    o="$o --avoid=$exclude"
+	fi
+
+	# Add seed/target
+	o1="$o --nsamples=$nseed -x $seed "
+	if [ -n "${targets}" ];then #Add waypoints if there are any
+       	    o1=" $o1 --waypoints=$targetfile "
+	fi
+  if [ -e "$maskdir/wayorder" ]; then
+      o1=" $o1 --wayorder "
+  fi
+  if [ -e "$maskdir/wayorder" ] && [ -e "$maskdir/invert" ]; then
+    echo "Invert and wayorder options selected. Cannot use both! Exiting now"
+    exit 1
+  fi
+  # Outputs
+	o1=" $o1 -o density --dir=$out/tracts/$struct"
+
+	# Does the protocol define a second run with inverted seed / target masks?
+	if [ -e "$maskdir/invert" ]; then  #Invert-mode
+	    if 	[ `$FSLDIR/bin/imtest "$maskdir/target.nii.gz"` -eq 1 ];then 	# Check if a target.nii.gz image exists when invert option has been selected.
+		mkdir -p "$out/tracts/$struct/tractsInv"
+		if [ `$FSLDIR/bin/imtest "$out/masks/$struct/target.nii.gz"` -eq 1 ]; then
+		    target="$out/masks/$struct/target"
+		else
+		    target="$maskdir/target"
+		fi
+		o2="$o --nsamples=\"$nseed\" -x \"${target}\" --waypoints=\"$seed\" -o density --dir=\"$out/tracts/$struct/tractsInv\""
+		# merge runs for forward and inverted tractography runs and then normalise (create commands but don't execute)
+		mergecmd="$FSLDIR/bin/fslmaths \"$out/tracts/$struct/density\" -add \"$out/tracts/$struct/tractsInv/density\" \"$out/tracts/$struct/sum_density\""
+		#Add waypoints (create command but don't execute)
+		addcmd="echo \"scale=5; \`cat \"$out/tracts/$struct/waytotal\"\` + \`cat \"$out/tracts/$struct/tractsInv/waytotal\"\` \"|bc > \"$out/tracts/$struct/sum_waytotal\""
+		# Waypoint normalisation (create command but don't execute)
+		normcmd="$FSLDIR/bin/fslmaths \"$out/tracts/$struct/sum_density\" -div \`cat \"$out/tracts/$struct/sum_waytotal\"\` \"$out/tracts/$struct/densityNorm\""
+		# Append to command list
+		echo "$ptxbin $o1; $ptxbin $o2; $mergecmd; $addcmd; $normcmd" >> "$commands"
+	    else
+		echo "Invert Option selected, but more than one target defined! A 'target.nii.gz' is expected. Exiting now"
+		exit 1
+	    fi
+	else  	#No invert-mode
+	    # Waypoint normalisation (create command but don't execute)
+	    normcmd="$FSLDIR/bin/fslmaths \"$out/tracts/$struct/density\" -div \`cat \"$out/tracts/$struct/waytotal\"\` \"$out/tracts/$struct/densityNorm\""
+	    # Append to command list
+	    echo "$ptxbin $o1; $normcmd" >> "$commands"
+	fi
+    fi
+done < $str
+
+chmod +x "$commands"
+
+# Submit all commands to run in parallel on the cluster
+# One job per tract for a CPU cluster, one job for all tracts for a GPU cluster.
+if [ "`fsl_sub --has_queues`" == "Yes" ]; then
+  if [ $gpu -eq 0 ]; then
+    if [ $par -eq 0 ]; then
+      fsl_sub -T 2160 -R 30 -n -l "$out/logs" -N xtract sh "$commands" &
+    else
+      fsl_sub -T 600 -R 30 -n -l "$out/logs" -N xtract -t "$commands" &
+    fi
+  else
+    if [ $par -eq 0 ]; then
+      fsl_sub -T 300 -R 30 -n --coprocessor=cuda -l "$out/logs" -N xtract sh "$commands" &
+    else
+      fsl_sub -T 120 -R 30 -n --coprocessor=cuda -l "$out/logs" -N xtract -t "$commands" &
+    fi
+  fi
+else
+  sh "$commands"
+fi
+
+
+#EOF

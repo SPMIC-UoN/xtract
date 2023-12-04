@@ -1,0 +1,211 @@
+#!/bin/bash
+
+#   Copyright (C) 2020 University of Oxford
+#
+#   SHCOPYRIGHT
+
+# Written by Shaun Warrington
+
+shopt -s extglob
+
+code_folder="$FSLDIR/bin"
+temp_loc="$FSLDIR/data/xtract_data"
+
+Splash (){
+cat <<EOF
+
+__  _______ ____      _    ____ _____ ___   ____
+\ \/ /_   _|  _ \    / \  / ___|_   _/ _ \ / ___|
+ \  /  | | | |_) |  / _ \| |     | || | | | |
+ /  \  | | |  _ <  / ___ \ |___  | || |_| | |___
+/_/\_\ |_| |_| \_\/_/   \_\____| |_| \__\_\\____|
+
+
+EOF
+}
+Splash
+
+
+Usage() {
+    cat << EOF
+
+Usage:
+    xtract_qc -subject_list <list.txt> -out <out_folder> [options]
+
+    Compulsory arguments:
+       -subject_list    <txt>                      Text file containing line separated subject-wise paths to XTRACT folders
+       -out             <folder>                   Path to output folder
+
+    Optional arguments:
+       -tract_list      <list>                     Comma separated list of tracts to include (default = the XTRACT 'HUMAN' structureList )
+       -thr             <float>                    Threshold applied to XTRACT tracts for volume calculation (default = 0.001, i.e. 0.1% probability).
+       -n_std           <float>                    The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).
+       -use_prior                                  If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)
+EOF
+    exit 1
+}
+
+[ "$1" = "" ] && Usage
+
+# Set default options
+out=""
+subject_list=""
+tract_list=""
+thr=0.001
+n_std=2
+use_prior=0
+
+# Parse command-line arguments
+while [ ! -z "$1" ];do
+    case "$1" in
+	-out) out=$2;shift;;
+	-subject_list) subject_list=$2;shift;;
+  -tract_list) tract_list=$2;shift;;
+  -thr) thr=$2;shift;;
+  -n_std) n_std=$2;shift;;
+  -use_prior) use_prior=1;;
+	*) echo "Unknown option '$1'";exit 1;;
+    esac
+    shift
+done
+
+# Step 0 : Prepare
+# Check compulsory arguments
+errflag=0
+if [ "$subject_list" == "" ];then
+    echo "Must set compulsory argument '-subject_list'"
+    errflag=1
+elif [ ! -f $subject_list ];then
+    echo "Subject list file $subject_list not found"
+    errflag=1
+fi
+if [ "$out" == "" ];then
+    echo "Must set compulsory argument '-out'"
+    errflag=1
+fi
+
+if (( $(echo "$thr == 0" | bc -l) ));then
+    echo "Tract threshold has been set to 0. Must be greater than 0. Default is 0.001"
+    errflag=1
+fi
+
+if (( $(echo "$n_std == 0" | bc -l) ));then
+    echo "Number of standard deviations ('-n_std') has been set to 0. Must be greater than 0. Default is 2"
+    errflag=1
+fi
+
+if [ "$errflag" -eq 1 ];then
+    echo ""
+    echo "Exit without doing anything..."
+    exit 1
+fi
+
+if [ -d $out ];then
+    echo "Warning: Output folder already exists. Some of the files may be overwritten"
+fi
+mkdir -p $out
+
+# Get tract list here
+function join_str { local IFS="$1"; shift; echo "$*"; }
+if [ "$tract_list" == "" ]; then
+    # if not supplied, get tracts from HUMAN structureList
+    unset tracts
+    while read structstring; do
+      t=`echo $structstring | awk '{print $1}'`
+      if [ "${t:0:1}" == "#" ];then
+      foo=0
+      elif [ "$t" == "" ];then
+      foo=0
+      else
+      tracts+=($t)
+      fi
+    done < $FSLDIR/data/xtract_data/Human/structureList
+    # also build comma separated tract_list for python usage later
+    tract_list=`join_str , ${tracts[@]}`
+else
+    tracts=(`echo $tract_list | sed s@","@" "@g`)
+fi
+
+# function to get metrics for each tract
+get_metrics(){
+    tracts=$1
+    sub=$2
+    thr=$3
+
+    sub_out=${sub}/xtract_qc
+    fc_out=${sub_out}/filecheck # does the file exist?
+    wt_out=${sub_out}/waytotal # what is the waytotal?
+    vol_out=${sub_out}/volume # tract volumes
+
+    for t in ${tracts[@]}; do
+      # check output file exists
+        if [ -f ${sub}/tracts/${t}/densityNorm.nii.gz ]; then
+            echo "${t} 1" >> ${fc_out}
+            # if it does exist, get waytotal...
+            echo "${t} `cat ${sub}/tracts/${t}/waytotal`" >> ${wt_out}
+            # ... and tract volume
+            echo "${t} `fslstats ${sub}/tracts/${t}/densityNorm.nii.gz -l $thr -V | awk '{print $1}'`" >> ${vol_out}
+        else
+          # else report 0s for file_exist, waytotal and volume
+            echo "${t} 0" >> ${fc_out}
+            echo "${t} 0" >> ${wt_out}
+            echo "${t} 0" >> ${vol_out}
+        fi
+      done
+}
+
+# loop through tracts and get:
+# "if tract has nifti", "waytotal" and "tract volume"
+# start building QC metric files
+COUNTER=1
+nsubs=`cat ${subject_list} | wc -l`
+echo "Generating subject QC metrics..."
+missing_list="${out}/missing_subjects.txt"
+rm -rf $missing_list
+for sub in `cat ${subject_list}`; do
+    # update progress bar
+    echo -ne "\r     $COUNTER of $nsubs"
+
+    if [ ! -d ${sub} ]; then
+      echo ${sub} >> $missing_list
+    else
+      sub_out=${sub}/xtract_qc
+      fc_out=${sub_out}/filecheck # does the file exist?
+      wt_out=${sub_out}/waytotal # what is the waytotal?
+      vol_out=${sub_out}/volume # tract volumes
+      # if using prior run, check if output files already exist
+      # if it does, do nothing and move on
+      # if it doesn't exist, get maetrics
+      if [ $use_prior == 1 ];then
+        if [ ! -f $fc_out ] || [ ! -f $wt_out ] || [ ! -f $vol_out ]; then
+            get_metrics $tracts $sub $thr
+        else
+          foo=0 # do nothing - metrics already exist
+        fi
+      # else, just get the metrics, overwriting any previous run
+      elif [ $use_prior == 0 ];then
+        rm -rf ${sub_out}
+        mkdir -p ${sub_out}
+        get_metrics ${tracts} $sub $thr
+      fi
+    fi
+    COUNTER=$(( COUNTER + 1 ))
+done
+echo ""
+echo ""
+
+if [ ! -f $missing_list ];then
+    foo=0
+else
+    n_missing=`cat $missing_list | wc -l`
+    echo "Could not find XTRACT folders for ${n_missing} subject(s)"
+    echo "Excluding from QC"
+    echo "See $missing_list for list"
+    echo ""
+fi
+
+# launch python job to summarise QC results
+echo "Generating report..."
+$code_folder/report_xtract_qc.py ${subject_list} ${out} ${tract_list} ${n_std} ${missing_list} ${temp_loc}
+echo "Report generated:"
+echo "See ${out}/qc_report.html"
