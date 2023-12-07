@@ -1,0 +1,159 @@
+#!/usr/bin/env fslpython
+
+import sys,os,glob,subprocess,shutil
+import argparse
+
+FSLDIR = os.getenv('FSLDIR')
+FSLbin = os.path.join(FSLDIR, 'bin')
+
+# some useful functions
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
+
+def imgtest(fname):
+    r = subprocess.run([f'{os.path.join(FSLbin, "imtest")} {fname}'], capture_output=True, text=True, shell=True)
+    return int(r.stdout)
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+
+splash = """
+ __  _______ ____      _    ____ _____         _
+ \ \/ /_   _|  _ \    / \  / ___|_   _| __   _(_) _____      _____ _ __
+  \  /  | | | |_) |  / _ \| |     | |   \ \ / / |/ _ \ \ /\ / / _ \ '__|
+  /  \  | | |  _ <  / ___ \ |___  | |    \ V /| |  __/\ V  V /  __/ |
+ /_/\_\ |_| |_| \_\/_/   \_\____| |_|     \_/ |_|\___| \_/\_/ \___|_|
+
+
+ """
+print(splash)
+
+parser = MyParser(prog='XTRACT Viewer',
+                  description='xtract_viewer: quick visualisation of xtract results in fsleyes',
+                  epilog='')
+
+# Compulsory arguments:
+parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
+parser.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'MACAQUE_F99', 'MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_NMT', 'MACAQUE_YRK', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM. Can also specify the macaque template space to be used by appending _[D99,INIA,NMT,YRK] (default is F99).")
+
+# Optional arguments:
+parser.add_argument("-brain", metavar='<nifti>', help="Path to custom brain teplate")
+parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+parser.add_argument("-thr", metavar='<float>', default=[0.001, 0.1], nargs=2, type=float, help="Upper and lower threshold applied to tracts for viewing (default = [0.001 0.1]).")
+parser.add_argument("-print_cmd", action="store_true", default=False, help="Print the fsleyes command?")
+argsa = parser.parse_args()
+
+# test paths
+# argsa = lambda:0
+# argsa.xtract = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new'
+# argsa.species = 'HUMAN'
+# argsa.brain = None
+# argsa.thr = [0.001, 0.1]
+# argsa.print_cmd = False
+# argsa.tract_list = None
+# argsa.tract_list = 'af_l,af_r,fmi,mcp'
+# 
+# 
+
+
+xtract = argsa.xtract
+spec = argsa.species
+thr = argsa.thr
+
+
+# the colourmap options 
+cmaps=['blue', 'red', 'green', 'blue-lightblue', 
+    'pink', 'red-yellow', 'cool', 'yellow', 'copper', 'hot', 
+    'hsv', 'coolwarm', 'spring', 'summer', 'winter', 'Oranges',
+    'brain_colours_2winter', 'brain_colours_gold', 'brain_colours_flow',
+    'brain_colours_french', 'brain_colours_pink', 'brain_colours_surface', 'brain_colours_gooch']
+
+# Check compulsory arguments
+errflag = 0
+if os.path.isdir(xtract) is False:
+    print(f'xtract folder {xtract} not found')
+    errflag=1
+errchk(errflag)
+
+if spec == 'HUMAN' and argsa.brain is None:
+    brain = os.path.join(FSLDIR, 'data', 'standard', 'FSL_HCP1065_FA_1mm')
+elif spec == in ['MACAQUE', 'MACAQUE_F99'] and argsa.brain is None:
+    brain = os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain')
+elif spec in ['MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_YRK', 'MACAQUE_NMT'] and argsa.brain is None:
+    brain = os.path.join(datadir, 'standard', 'macaque_multitemplate', spec)
+elif spec == 'HUMAN_BABY' and argsa.brain is None:
+    brain = os.path.join(datadir, 'standard', 'Schuh40week', 'mri', 'schuh_lowres')
+elif spec == 'CUSTOM' and argsa.brain is None:
+    print('Error: if CUSTOM, must set -brain argument.')
+    errflag=1
+else:
+    brain = argsa.brain
+    
+if imgtest(brain) == 0:
+    print(f'Brain template {brain} not found. Exiting.')
+    errflag=1
+errchk(errflag)
+
+# get tract list
+if argsa.tract_list is not None:
+    tracts = argsa.tract_list.split(',')
+else:
+    tracts = glob.glob(os.path.join(xtract, 'tracts', '*', 'densityNorm.nii.gz'))
+    tracts = [os.path.basename(os.path.dirname(t)) for t in tracts]
+
+#### Loop through and build command
+# get an upper threshold for the template brain (75% of the robust max intensity)
+brain_max = subprocess.run([os.path.join(FSLbin, 'fslstats'), brain, '-r'], capture_output=True)
+brain_max = float(str(brain_max.stdout).split(' ')[1])
+
+# start the fsleyes command
+eyes_cmd = f'{os.path.join(FSLbin, "fsleyes")} {brain} -dr {brain_max*0.05} {brain_max*0.99}'
+opts=f'-dr {thr[0]} {thr[1]}'
+
+ii = 0
+t_proc = []
+for ind, t in enumerate(tracts):
+    if ii > len(cmaps)-1: ii=0
+    # check tract file exists
+    t_file = os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz')
+    if imgtest(t_file) == 0:
+        print(f'Warning: {t} image file not found. Excluding...')
+    # check if we have already added this tract to the command
+    elif t not in t_proc:
+        # if you find a left tract, then find the corresponding right tract
+        # if right exists, colour in the same way
+        if '_l' in t:
+            tt = t.replace('_l', '_r')
+            if tt in tracts:
+                tt_file = os.path.join(xtract, 'tracts', tt, 'densityNorm.nii.gz')
+                eyes_cmd = f'{eyes_cmd} {t_file} {opts} -cm {cmaps[ii]} -n {t}'
+                eyes_cmd = f'{eyes_cmd} {tt_file} {opts} -cm {cmaps[ii]} -n {tt}'
+                t_proc.append(t)
+                t_proc.append(tt)
+            else:
+                eyes_cmd = f'{eyes_cmd} {t_file} {opts} -cm {cmaps[ii]} -n {t}'
+                t_proc.append(t)
+        else:
+            eyes_cmd = f'{eyes_cmd} {t_file} {opts} -cm {cmaps[ii]} -n {t}'
+            t_proc.append(t)
+    else:
+        foo=''
+    ii += 1
+
+eyes_cmd = f'{eyes_cmd} &'
+if argsa.print_cmd:
+    print(f'Command:\n{eyes_cmd}\n\n')
+    
+print('Launching FSLeyes...')
+os.system(eyes_cmd)
+quit()

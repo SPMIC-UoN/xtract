@@ -1,491 +1,439 @@
-#!/bin/bash
+#!/usr/bin/env fslpython
 
-#   Copyright (C) 2020 University of Oxford
-#
-#   SHCOPYRIGHT
+import sys,os,glob,subprocess,shutil
+import argparse
 
-# Written by Shaun Warrington, Saad Jbabdi, Stam Sotiropoulos
+FSLDIR = os.getenv('FSLDIR')
+FSLbin = os.path.join(FSLDIR, 'bin')
+ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_gpu binary
+datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
-shopt -s extglob
+# some useful functions
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
 
-code_folder="$FSLDIR/bin"
+def imgtest(fname):
+    r = subprocess.run([f'{os.path.join(FSLbin, "imtest")} {fname}'], capture_output=True, text=True, shell=True)
+    return int(r.stdout)
 
-# Location of probtrackx2_gpu binary
-ptxbin_gpu=$FSLDIR/bin/probtrackx2_gpu
+def applyisoxfm(fin, out, res, refimg, interp):
+    subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp', interp])
 
-Splash (){
-cat <<EOF
+def remove_ext(p):
+    exts = ['.nii.gz', '.nii', '.surf.gii', '.gii', '.asc']
+    for e in exts:
+        p = p.replace(e, '')
+    return p
 
+def conv_ascii(fin, roi, dirname):
+    fout = os.path.basename(fin)
+    fout = remove_ext(os.path.basename(fout))
+    fout += '.asc'
+    fout = os.path.join(dirname, fout)
+    subprocess.run([os.path.join(FSLbin, "surf2surf"), '-i', fin, '-o', fout, f'--values={roi}', '--outputtype=ASCII'])
+    return fout
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+
+splash = """
 __  _______ ____      _    ____ _____ _     _                       _       _
 \ \/ /_   _|  _ \    / \  / ___|_   _| |__ | |_   _  ___ _ __  _ __(_)_ __ | |_
  \  /  | | | |_) |  / _ \| |     | | | '_ \| | | | |/ _ \ '_ \| '__| | '_ \| __|
  /  \  | | |  _ <  / ___ \ |___  | | | |_) | | |_| |  __/ |_) | |  | | | | | |_
 /_/\_\ |_| |_| \_\/_/   \_\____| |_| |_.__/|_|\__,_|\___| .__/|_|  |_|_| |_|\__|
                                                         |_|
+ """
+print(splash)
 
-EOF
-}
-Splash
+parser = MyParser(prog='XTRACT Blueprint',
+                  description='xtract_blueprint: for generating connectivity blueprints from xtract output',
+                  epilog='')
 
+# Compulsory arguments:
+parser.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder", required=True)
+parser.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
+parser.add_argument("-xtract", metavar='<folder>', help="Path to xtract folder", required=True)
+parser.add_argument("-seeds", metavar='<list>', help="Comma separated list of seeds for which a blueprint is requested (e.g. left and right cortex in standard space)", required=True)
+parser.add_argument("-target", metavar='<mask>', help="A whole brain/WM binary target mask in the same space as the seeds", required=True)
 
-Usage() {
-    cat << EOF
+# Either standard space or native space?
+parser.add_argument("-warps", metavar='<path>', nargs=3, help="<ref> <xtract2diff> <diff2xtract> Standard space reference image, and transforms between xtract space and diffusion space")
+parser.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
 
-Usage:
-    xtract_blueprint -bpx <folder> -out <folder> -xtract <folder> -seeds <list> [options]
+# Optional arguments:
+parser.add_argument("-stage", choices=[0, 1, 2], default=0, type=int, help="What to run. 0:everythng (default), 1:matrix2, 2:blueprint")
+parser.add_argument("-savetxt", action="store_true", default=False, help="Save blueprint as txt file (nseed by ntracts) instead of CIFTI")
+parser.add_argument("-prefix", metavar='<string>', help="Specify a prefix for the final blueprint filename (e.g. <prefix>_BP.LR.dscalar.nii)")
 
-    Compulsory arguments:
+# Optional tracking arguments:
+parser.add_argument("-rois", metavar='<list>', help="Comma separated list (1 per seed): ROIs (gifti) to restrict seeding (e.g. medial wall masks)")
+parser.add_argument("-stops", metavar='<stop.txt>', help="Text file containing line separated list of stop masks (see probtrackx usage for details)")
+parser.add_argument("-wtstops", metavar='<wtstop.txt>', help="Text file containing line separated list of wtstop masks (see probtrackx usage for details)")
+parser.add_argument("-exclusion", metavar='<nifti>', help="NIFTI containing a binary exclusion mask")
+parser.add_argument("-subseed", metavar='<subseed.txt>', help="Text file containing line separated list of subcortical seeds")
+parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts prior to blueprint calculation (default = 0.001)")
+parser.add_argument("-nsamples", metavar='<int>', default=1000, type=int, help="Number of samples per seed used in tractography (default = 1000)")
+parser.add_argument("-res", metavar='<float>', default=3, type=float, help="Resolution of matrix2 output (Default = 3 mm). Set to 0 for standard space resolution.")
+parser.add_argument("-ptx_options", metavar='<options.txt>', default=False, help="Pass extra probtrackx2 options as a text file to override defaults")
 
-       -bpx       <folder>                          Path to bedpostx folder
-       -out       <folder>                          Path to output folder
-       -xtract    <folder>                          Path to xtract folder
-       -seeds     <list>                            Comma separated list of seeds for which a blueprint is requested (e.g. left and right cortex in standard space)
-       -warps     <ref> <xtract2diff> <diff2xtract> Standard space reference image, and transforms between xtract space and diffusion space
-       -target    <mask>                            A whole brain/WM binary target mask in the same space as the seeds
+# Optional computing arguments:
+parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
+parser.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
+parser.add_argument("-M", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
+parser.add_argument("-T", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
+argsa = parser.parse_args()
 
-    Optional arguments:
-       -stage                                       What to run. 1:matrix2, 2:blueprint, all:everythng (default)
-       -gpu                                         Use GPU version
-       -savetxt                                     Save blueprint as txt file (nseed by ntracts) instead of CIFTI
-       -prefix    <string>                          Specify a prefix for the final blueprint filename (e.g. <prefix>_BP.LR.dscalar.nii)
+# # test paths
+# argsa = lambda:0
+# argsa.bpx = '/data/Q1200/Diffusion/100307/T1w/Diffusion.bedpostX'
+# argsa.out = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint'
+# argsa.xtract = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new'
+# argsa.seeds = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.white.resampled.surf.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/R.white.resampled.surf.gii'
+# argsa.rois = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.pial.resampled.surf.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.pial.resampled.surf.gii'
+# argsa.target = '/data/Q1200/Structural/100307/MNINonLinear/ROIs/Whole_Brain_Trajectory_ROI_2.nii.gz'
+# argsa.warps = ['/usr/local/fsl-6.0.6/data/standard/MNI152_T1_2mm_brain.nii.gz', '/data/Q1200/Structural/100307/MNINonLinear/xfms/standard2acpc_dc.nii.gz', '/data/Q1200/Structural/100307/MNINonLinear/xfms/acpc_dc2standard.nii.gz']
+# argsa.subseed = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/subcortical_seeds/subcort.nii.gz'
+# argsa.stops = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/stop'
+# argsa.wtstops = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/wtstop'
+# argsa.tract_list = 'af_l,af_r,ar_l,ar_r,atr_l,atr_r,cbd_l,cbd_r,cbp_l,cbp_r,cbt_l,cbt_r,cst_l,cst_r,fa_l,fa_r,fma,fmi,fx_l,fx_r,ilf_l,ilf_r,ifo_l,ifo_r,mdlf_l,mdlf_r,or_l,or_r,str_l,str_r,slf1_l,slf1_r,slf2_l,slf2_r,slf3_l,slf3_r,ac,uf_l,uf_r,vof_l,vof_r'
+# argsa.gpu = True
+# argsa.ptx_options = False
+# argsa.nsamples = 1000
+# argsa.thr = 0.001
+# argsa.keepfiles = False
+# argsa.distnorm = False
+# argsa.prefix = ''
+# argsa.stage = 0
+# argsa.res = 3
+# 
+# argsa.distnorm = False
 
-       -rois      <list>                            Comma separated list (1 per seed): ROIs (gifti) to restrict seeding (e.g. medial wall masks)
-       -stops     <stop.txt>                        Text file containing line separated list of stop masks (see probtrackx usage for details)
-       -wtstops   <wtstop.txt>                      Text file containing line separated list of wtstop masks (see probtrackx usage for details)
-       -subseed   <nifti>                           Binary NIFTI image for subcortical seeding - to generate a surface+volume CIFTI
-       -tract_list                                  Comma separated list of tracts to include (default = all found under -xtract <folder>)
-
-       -thr                                         Threshold applied to XTRACT tracts prior to blueprint calculation (default = 0.001, i.e. 0.1% probability).
-       -nsamples                                    Number of samples per seed used in tractography (default = 1000)
-       -res       <mm>                              Resolution of matrix2 output (Default = 3 mm)
-       -ptx_options <options.txt>                   Pass extra probtrackx2 options as a text file to override defaults
-
-   Example usage:
-      xtract_blueprint -bpx <bpxdir> -out <outdir> -xtract <xtractdir> -seeds <l.white.surf.gii,r.white.surf.gii> \
-           -rois <l.medwall.shape.gii,r.medwall.shape.gii> -warps <ref> <xtract2diff> <diff2xtract> -gpu \
-
-EOF
-    exit 1
-}
-#       -distnorm                                    Normalise by distance # just add the distance normalisation option to ptx_opts
-#       -keepfiles                                   Don't remove temp_xtract folder
-#       -waypoints                                   Comma separated list of waypoints, 1 for each seed
-
-[ "$1" = "" ] && Usage
-
-# Set default options
-bpx=""
-out=""
-xtract=""
-seeds=""
-subseed=""
-stops=""
-wtstops=""
-target=""
-rois=""
-ptx_opts=""
-stdref=""
-gpu=0
-ref=""
-diff2xtract=""
-xtract2diff=""
-diff2seed=""
-seed2diff=""
-spec=""
-res=3
-stage=all
-savetxt=0
-thr=0.001
-nsamples=1000
-tract_list=""
-prefix="x" # if prefix not specific, pass 'x' to create_blueprint which is nulled
+# rename arguments for ease
+bpx = argsa.bpx
+out = argsa.out
+xtract = argsa.xtract
+seeds = argsa.seeds.split(",")
+target = argsa.target
+res = argsa.res
+stage = argsa.stage
+native = argsa.native
+errflag = 0
 
 # hidden options
-keepfiles=0
-waypoints=""
+# waypoints=""
+argsa.distnorm = False
+            
+# check compulsory arguments
+# input directories
+if not os.path.isdir(bpx):
+    print(f'Bedpostx folder {bpx} not found')
+    errflag = 1
+if os.path.isdir(out):
+    print('Warning: output directory already exists. XTRACT may overwrite existing content.')
+if not os.path.isdir(xtract):
+    print(f'Bedpostx folder {xtract} not found')
+    errflag = 1
+# Check seeds/target
+for seed in seeds:
+    if os.path.isfile(seed) == False:
+        print(f'Seed file {seed} not found')
+        errflag = 1
+if imgtest(target) == 0:
+    print(f'Target file {target} not found.')
+    errflag = 1
 
-# Parse command-line arguments
-while [ ! -z "$1" ];do
-    case "$1" in
-	-bpx) bpx=$2;shift;;
-	-out) out=$2;shift;;
-	-seeds) seeds=(`echo $2 | sed s@","@" "@g`);shift;;
-  -stops) stops=(`echo $2 | sed s@","@" "@g`);shift;;
-  -wtstops) wtstops=(`echo $2 | sed s@","@" "@g`);shift;;
-  -waypoints) waypoints=(`echo $2 | sed s@","@" "@g`);shift;;
-  -target) target=$2;shift;;
-  -rois) rois=(`echo $2 | sed s@","@" "@g`);shift;;
-	-xtract) xtract=$2;shift;;
-  -subseed) subseed=$2;shift;;
-	-warps) ref=$2;xtract2diff=$3;diff2xtract=$4;shift;shift;shift;;
-	-gpu) gpu=1;;
-	-res) res=$2;shift;;
-	-stage) stage=$2;shift;;
-	-ptx_options) ptx_options=`cat $2`;shift;;
-  -savetxt) savetxt=1;;
-  -thr) thr=$2;shift;;
-  -tract_list) tract_list=$2;shift;;
-  -prefix) prefix=$2;shift;;
-  -nsamples) nsamples=$2;shift;;
-  -keepfiles) keepfiles=1;;
-	*) echo "Unknown option '$1'";exit 1;;
-    esac
-    shift
-done
+# check which space we are running tracking in    
+if native is True and argsa.warps[0] is not None:
+    print("You have selected the native space and ref space options")
+    print("Must select EITHER '-native', '-ref <refimage> <diff2ref> <ref2diff>', OR use the default standard space")
+    errflag=1
+elif native is False and argsa.warps[0] is not None:
+    print("Creating blueprint in standard space")    
+    ref = argsa.warps[0]
+    xtract2diff = argsa.warps[1]
+    diff2xtract = argsa.warps[2]
+    # check ref and warps
+    if imgtest(ref) == 0:
+        print(f'Reference file {ref} not found.')
+        errflag = 1    
+    if imgtest(xtract2diff) == 0:
+        print(f'Warp file {xtract2diff} not found.')
+        errflag = 1
+    if imgtest(diff2xtract) == 0:
+        print(f'Warp file {diff2xtract} not found.')
+        errflag = 1   
+elif native is True and argsa.warps[0] is None:
+    print("Creating blueprint in native space")
+errchk(errflag)
 
-# Step 0 : Prepare
-# Check compulsory arguments
-errflag=0
-if [ "$bpx" == "" ];then
-    echo "Must set compulsory argument '-bpx'"
-    errflag=1
-elif [ ! -d $bpx ];then
-    echo "Bedpostx folder $bpx not found"
-    errflag=1
-fi
-if [ "$xtract" == "" ];then
-    echo "Must set compulsory argument '-xtract'"
-    errflag=1
-elif [ ! -d $xtract ];then
-    echo "XTRACT folder $xtract not found"
-    errflag=1
-fi
-if [ "$out" == "" ];then
-    echo "Must set compulsory argument '-out'"
-    errflag=1
-fi
-if [ "$seeds" == "" ];then
-    echo "Must set compulsory argument '-seeds'"
-    errflag=1
-fi
-if [ "$target" == "" ];then
-    echo "Must set compulsory argument '-target'"
-    errflag=1
-fi
 
-# Check seeds and stops (check they exist and 1 stop per seed if using)
-for seed in ${seeds[@]};do
-  if [ ! -f $seed ];then
-    echo "Seed file $seed not found"
-    errflag=1
-  fi
-done
-if [ ! `$FSLDIR/bin/imtest $target` -eq 1 ];then
-  echo "Target file $target not found."
-  echo "Must be a binary NIFTI file."
-  errflag=1
-fi
+# check optional arguments
+nseeds = len(seeds)
+nrois, nwaypoints = 0, 0
+if argsa.stops is not None:
+    stops = argsa.stops
+    if os.path.isfile(stops) == False:
+        print(f'Stop file {stops} not found')
+        errflag = 1
+if argsa.wtstops is not None:
+    wtstops = argsa.wtstops
+    if os.path.isfile(wtstops) == False:
+        print(f'Stop file {wtstops} not found')
+        errflag = 1
+if argsa.rois is not None:
+    rois = argsa.rois.split(",")
+    nrois = len(rois)
+    if nrois != nseeds:
+        print(f'Supplied {nseeds} seed but {nrois} ROIs')
+        print('If using ROIs, must supply 1 per seed')
+        errflag = 1
+    for roi in rois:
+        if os.path.isfile(roi) == False:
+            print(f'ROI file {roi} not found')
+            errflag = 1
+if argsa.subseed is not None:
+    if os.path.isfile(argsa.subseed) == False:
+        print(f'Subcortical seed file {argsa.subseed} not found.')
+        errflag = 1
+    if nseeds == 2:
+        seeds.append(argsa.subseed)
+    elif nseeds != 2:
+        print('Using subcortical seed but only one surface seed')
+        print('Subcortical seeding is currently limited to two surface seeds (whole-brain/two hemispheres)')
+        errflag=1    
+if argsa.exclusion is not None:
+    exclusion = argsa.exclusion
+    if exclusion == False:
+        print(f'Exclusion mask file {exclusion} not found.')
+        errflag = 1
+errchk(errflag)
 
-nseeds=${#seeds[@]}
-nrois=${#rois[@]}
-nwaypoints=${#waypoints[@]}
-if [ ! "$stops" == "" ]; then
-    if [ ! -f $stop ];then
-      echo "Stop file $stop not found"
-      errflag=1
-    fi
-fi
-if [ ! "$wtstops" == "" ]; then
-    if [ ! -f $stop ];then
-      echo "wtstop file $wtstop not found"
-      errflag=1
-    fi
-fi
-if [ ! "$rois" == "" ]; then
-    if [ ! $nrois -eq $nseeds ]; then
-      echo "Supplied $nseeds seeds but $nrois ROIs"
-      echo "If using ROIs, must supply 1 per seed"
-      errflag=1
-    fi
-    for roi in ${rois[@]};do
-      if [ ! -f $roi ];then
-        echo "ROI file $roi not found"
-        errflag=1
-      fi
-    done
-fi
-if [ ! "$waypoints" == "" ]; then
-    if [ ! $nwaypoints -eq $nseeds ]; then
-      echo "Supplied $nseeds seeds but $nwaypoints ROIs"
-      echo "If using ROIs, must supply 1 per seed"
-      errflag=1
-    fi
-    for waypoint in ${waypoints[@]};do
-      if [ ! -f $waypoint ];then
-        echo "ROI file $waypoint not found"
-        errflag=1
-      fi
-    done
-fi
+# GPU option
+if argsa.gpu:
+    ptxbin = ptxbin_gpu
+    if argsa.M is None:
+        argsa.M = [40, 100]
+    if argsa.T is None:
+        argsa.T = [300, 300]
+else:
+    ptxbin = os.path.join(FSLbin, 'probtrackx2')
+    print('Warning: not using GPU mode - this may take a while. Consider downsampling the seed mask.')
+    if argsa.M is None:
+        argsa.M = [40, 100]
+    if argsa.T is None:
+        argsa.T = [1440, 300]
 
-# and subcortical seed, if using
-if [ ! "$subseed" == "" ]; then
-    if [ ! `$FSLDIR/bin/imtest $subseed` -eq 1 ];then
-      echo "Subcortical seed file $subseed not found."
-      echo "Must be a NIFTI file."
-      errflag=1
-    else
-    # if we are using subcortical, append to the seed list
-      if [ "$nseeds" == "2" ]; then
-        seeds+=("$subseed")
-      elif [ ! "$nseeds" == "2" ]; then
-        echo "Using subcortical seed but only one surface seed"
-        echo "Subcortical seeding is currently limited to two surface seeds (whole-brain/two hemispheres)"
-        errflag=1
-      fi
-    fi
-fi
-
-# check ref and warps
-if [ ! -f $ref ];then
-  echo "Reference file $ref not found"
-  errflag=1
-fi
-if [ ! -f $xtract2diff ];then
-  echo "Warp file $xtract2diff not found"
-  errflag=1
-fi
-if [ ! -f $diff2xtract ];then
-  echo "Warp file $diff2xtract not found"
-  errflag=1
-fi
-
-if [ "$errflag" -eq 1 ];then
-    echo ""
-    echo "Exit without doing anything..."
-    exit 1
-fi
-
-# GPU stuff
-if [ "$gpu" == 0 ];then
-    ptxbin=$FSLDIR/bin/probtrackx2
-    echo "Warning: not using GPU mode - this may take a while. Consider downsampling the seed mask."
-else
-    ptxbin=${ptxbin_gpu}
-fi
+additional_opts = ''
+if argsa.ptx_options:
+    f = open(argsa.ptx_options, "r")
+    additional_opts = f.read()
+    if "\n" in additional_opts:
+        print('Warning: new line(s) found in ptx_options. Removing.')
+        additional_opts = additional_opts.strip()
 
 # what are we running?
-if [ $stage == 1 ];then
-    echo "Running tractography only"
-elif [ $stage == 2 ];then
-    echo "Running blueprint processing only"
-elif [ $stage == "all" ];then
-    echo "Running tractography and blueprint processing"
-else
-    echo "Unknown stage option. Either: '1' for matrix2 tractography, '2' for blueprint or 'all' for both"
-fi
+if stage == 1:
+    print('Running tractography only')
+elif stage == 2:
+    print('Running blueprint processing only')
+elif stage == "all":
+    print('Running tractography and blueprint processing')
 
-if [ -d $out ];then
-    echo "Warning: Output folder already exists. Some of the files may be overwritten"
-fi
-mkdir -p $out
-mkdir -p $out/omatrix2
+
+# make output directories
+os.makedirs(out, exist_ok=True)
+os.makedirs(os.path.join(out, 'omatrix2'), exist_ok=True)
 
 # Get tract list here
 # if not provided by user, get list from under xtract folder
-function join_str { local IFS="$1"; shift; echo "$*"; }
-if [ "$tract_list" == "" ]; then
-    # if not supplied, get tracts from xtract folder
-    struct=(`ls ${xtract}/tracts/*/densityNorm.nii.gz`)
-    unset tracts
-    for t in ${struct[@]}; do
-        t=$( echo ${t%/*} )
-        t=$( echo ${t##*/} )
-        tracts+=($t)
-    done
-    # also build comma separated tract_list for python usage later
-    tract_list=`join_str , ${tracts[@]}`
-else
-    tracts=(`echo $tract_list | sed s@","@" "@g`)
-fi
+if stage != 1:
+    if argsa.tract_list is not None:
+        tracts = argsa.tract_list.split(',')
+    else:
+        tracts = glob.glob(os.path.join(xtract, 'tracts', '*', 'densityNorm.nii.gz'))
+        tracts = [os.path.basename(os.path.dirname(t)) for t in tracts]
 
-# function for image resmapling
-resample(){
-    # resample <src_img> <mm_resolution> <out_img> <interp>
-    i=$1
-    r=$2
-    o=$3
-    interp=$4
-    ${FSLDIR}/bin/flirt -in $i -out $o -ref $i -applyisoxfm $r -interp $interp
-}
-
-# Deal with warps - if only seed->diff assume it is the same as xtract->diff
 # Resample ref to get target2
-if (( $(echo "$res > 0" | bc -l) ));then
-    resample $target $res $out/omatrix2/target2 nearestneighbour
-else
-    ${FSLDIR}/bin/imcp $target $out/omatrix2/target2
-fi
+if res > 0:
+    applyisoxfm(target, os.path.join(out, 'omatrix2', 'target2'), res, target, 'nearestneighbour')
+else:
+    foo = shutil.copyfile(target, os.path.join(out, 'omatrix2', 'target2.nii.gz'))
+
 
 # Step 1 : Run omatrix2 for all seeds
-ptxopts=" --samples=$bpx/merged --mask=$bpx/nodif_brain_mask "
-ptxopts="$ptxopts --target2=$out/omatrix2/target2 --xfm=$xtract2diff --invxfm=$diff2xtract --seedref=$ref "
-ptxopts="$ptxopts --omatrix2 --loopcheck --forcedir --opd --nsamples=$nsamples "
+ptxopts = f' --samples={os.path.join(bpx, "merged")} --mask={os.path.join(bpx, "nodif_brain_mask")} --target2={os.path.join(out, "omatrix2", "target2")}'
+ptxopts += f' --omatrix2 --loopcheck --forcedir --opd --nsamples={argsa.nsamples} '
 
-conv_ascii(){
-    i=$1
-    roi=$2
-    d=$3
+if native is False:
+    ptxopts += f' --xfm={xtract2diff} --invxfm={diff2xtract} --seedref={ref} '
+else:
+    ptxopts += f' --seedref={os.path.join(out, "omatrix2", "target2")}'
 
-    o=`basename $i`
-    o=`echo ${o%%.@(nii|nii.gz|gii|surf.gii)}`
-    o="${d}/${o}.asc"
+if stage != 2:
+    commands_1 = os.path.join(out, 'omatrix2', 'ptx_commands.txt')
+    try:
+        os.remove(commands_1)
+    except OSError:
+        pass
+    
+    working_dirs = []
+    for COUNTER, seed in enumerate(seeds):
+        r = remove_ext(os.path.basename(seed))
+        print(f'\nSeed {COUNTER+1}:\n')
+        print(f'seed {r}', end="")
+        working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
+        os.makedirs(working_dirs[COUNTER], exist_ok=True)
 
-    ${FSLDIR}/bin/surf2surf -i ${i} -o ${o} --outputtype=ASCII --values=${roi}
-    echo $o
-}
+        s = seed
+        # if the seed is not nifti, i.e. not volume/subcortical
+        if seed is not argsa.subseed:
+            # convert gii to ascii with medial wall, if using
+            if nrois != 0:
+                roi = rois[COUNTER]
+                if not seed.endswith('.asc'):
+                    s = conv_ascii(seed, roi, working_dirs[COUNTER])
+                m = remove_ext(os.path.basename(roi))
+                print(f': medial wall/ROI {m}', end="")
 
-if [ ! $stage == 2 ];then
-  commands_1=$out/omatrix2/ptx_commands.txt
-  rm -rf $commands_1
-  COUNTER=0
-  for seed in ${seeds[@]};do
-      r=`basename $seed`
-      r=`echo ${r%%.@(nii|nii.gz|gii|surf.gii|asc)}`   # remove extensions
-      echo -ne "seed $r"
-      mkdir -p $out/omatrix2/omatrix2_$r
+        hemi_opts = f'{ptxopts} --seed={s} --dir={working_dirs[COUNTER]}'
+        # hemi_opts = f'{ptxopts} --seed={seed} --dir={working_dir}'
+                
+        # if nwaypoints > 0:
+        #     waypoint = waypoints[COUNTER]
+        #     m = remove_ext(os.path.basename(waypoint))
+        #     print(f': waypoint {m}', end="")
+        #     hemi_opts += f' --waypoints={waypoint}'
+            
+        if argsa.stops is not None:
+            m = remove_ext(os.path.basename(stops))
+            print(f': stop {m}', end="")
+            hemi_opts += f' --stop={stops}'
+        if argsa.wtstops is not None:
+            m = remove_ext(os.path.basename(wtstops))
+            print(f': wtstop {m}', end="")
+            hemi_opts += f' --wtstop={wtstops}'
+        if argsa.exclusion is not None:
+            m = remove_ext(os.path.basename(exclusion))
+            print(f': exclusion {m}', end="")
+            hemi_opts += f' --avoid={exclusion}'
+        
+        print('')
+        
+        # append extra options and save to commands file
+        hemi_opts += f' {additional_opts}'
+        
+        with open(commands_1, 'a') as f:
+            print(f'{ptxbin} {hemi_opts};', file=f)
 
-      s=$seed
-      # if the seed is not nifti, i.e. not volume/subcortical
-      if [ ! `$FSLDIR/bin/imtest $seed` -eq 1 ];then
-        # convert gii to ascii with medial wall, if using
-        if [ ! "$rois" == "" ]; then
-          roi=${rois[COUNTER]}
-          s=`conv_ascii ${seed} ${roi} $out/omatrix2/omatrix2_$r`
-          s=($s)
-          s=${s[$((${#s[@]}-1))]}
+    subprocess.run(['chmod', '+x', commands_1]);
+    
 
-          m=`basename $roi`
-          m=`echo ${m%%.@(nii|nii.gz|gii|shape.gii|asc)}`
-          echo -ne " : medial wall/ROI $m"
-        fi
-      fi
-      hemi_opts=" $ptxopts --seed=$s --dir=$out/omatrix2/omatrix2_$r"
+# Step 2 : Resample xtract, load all xtract thingies and matrix2 output and multiply them        
+if stage != 1:
+    commands_2 = os.path.join(out, 'bp_commands.txt')
+    try:
+        os.remove(commands_2)
+    except OSError:
+        pass    
+    os.makedirs(os.path.join(out, 'temp_xtract'), exist_ok=True)
+    
+    for t in tracts:
+        foo = shutil.copyfile(os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz'), os.path.join(out, 'temp_xtract', f'{t}.nii.gz'))
 
-      # and hidden waypoint
-      if [ ! "$waypoints" == "" ]; then
-        waypoint=${waypoints[COUNTER]}
-        m=`basename $waypoint`
-        m=`echo ${m%%.@(nii|nii.gz|gii|shape.gii|asc)}`
-        echo -ne " : waypoint $m"
-        hemi_opts=" $hemi_opts --waypoints=$waypoint"
-      fi
+    cmd = ''
+    # re-sample tracts if needed - assumes that all xtract tracts are equal dimensions - they should be!
+    targ_form = subprocess.run([os.path.join(FSLbin, 'fslorient'), '-getsform', os.path.join(out, 'omatrix2', 'target2')], capture_output=True)
+    tract_form = subprocess.run([os.path.join(FSLbin, 'fslorient'), '-getsform', os.path.join(out, 'temp_xtract', f'{tracts[0]}.nii.gz')], capture_output=True)
+    if targ_form.stdout != tract_form.stdout:
+        print('XTRACT resolution different from matrix2:')
+        print(f' --- will resample xtract tracts to {res} mm')
+        for t in tracts:
+            cmd += f'{os.path.join(FSLbin, "flirt")} -in {os.path.join(out, "temp_xtract", t)} -out {os.path.join(out, "temp_xtract", t)} -ref {os.path.join(out, "omatrix2", "target2")} -applyisoxfm {res} -interp trilinear;'
 
-      # add stop mask if using
-      if [ ! "$stops" == "" ]; then
-        hemi_opts=" $hemi_opts --stop=$stops"
-        r=`basename $stops`
-        r=`echo ${r%%.@(nii|nii.gz|gii|surf.gii|asc)}`
-        echo -ne " : stop $r"
-      fi
+    if argsa.thr > 0:
+        for t in tracts:
+            cmd += f'{os.path.join(FSLbin, "fslmaths")} {os.path.join(out, "temp_xtract", t)} -thr {argsa.thr} {os.path.join(out, "temp_xtract", t)};'
+            
+    # loop through seeds and prepare commands
+    # start of python command
+    # cmd += f' {os.path.join(FSLbin, "create_blueprint")} -xtract_folder {os.path.join(out, "temp_xtract")}'
+    cmd += f' {os.path.join("/home/mszsaw2", "create_blueprint")} -xtract_folder {os.path.join(out, "temp_xtract")}'
+    # p = [os.path.join(out, 'omatrix2', f'omatrix2_{remove_ext(os.path.basename(seed))}') for seed in seeds]
 
-      # add wtstop mask if using
-      if [ ! "$wtstops" == "" ]; then
-        hemi_opts=" $hemi_opts --wtstop=$wtstops"
-        r=`basename $wtstops`
-        r=`echo ${r%%.@(nii|nii.gz|gii|surf.gii|asc)}`
-        echo -ne " : wtstop $r"
-      fi
+    working_dirs = []
+    for seed in seeds:
+        r = remove_ext(os.path.basename(seed))
+        working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
 
-      echo ""
-      # Append extra options
-      hemi_opts=" $hemi_opts $ptx_options"
-      echo "$ptxbin $hemi_opts" >> $commands_1
-      COUNTER=$((COUNTER+1))
-      chmod +x $commands_1
-  done
-fi
+    py_args = f' -ptx_folder {",".join(working_dirs)}'
+    py_args = f'{py_args} -seed_path {",".join(seeds)}'
 
+    if nrois != 0:
+        py_args = f'{py_args} -roi_path {",".join(rois)}'
 
-# Step 2 : Resample xtract, load all xtract thingies and matrix2 output and multiply them
-if [ ! $stage == 1 ];then
-  # copy tracts to temp folder
-  mkdir -p $out/temp_xtract
-  commands_2=$out/bp_commands.txt
-  rm -rf $commands_2
-
-  for t in ${tracts[@]}; do
-    cp ${xtract}/tracts/${t}/densityNorm.nii.gz ${out}/temp_xtract/${t}.nii.gz
-  done
-  cmd=""
-  # re-sample tracts if needed - assumes that all xtract tracts are equal dimensions - they should be!
-  if [ ! "`fslorient -getsform $out/omatrix2/target2`" == "`fslorient -getsform ${out}/temp_xtract/${tracts[0]}.nii.gz`" ]; then
-    echo "XTRACT resolution different from matrix2:"
-    echo " --- will resample xtract tracts to $res mm"
-    for t in ${tracts[@]}; do
-      cmd="$cmd ${FSLDIR}/bin/flirt -in ${out}/temp_xtract/$t -out ${out}/temp_xtract/$t -ref $out/omatrix2/target2 -applyisoxfm $res -interp trilinear;"
-    done
-  fi
-
-  if (( $(echo "$thr > 0" | bc -l) ));then
-    for t in ${tracts[@]}; do
-      cmd="$cmd ${FSLDIR}/bin/fslmaths ${out}/temp_xtract/$t -thr $thr ${out}/temp_xtract/$t;"
-    done
-  fi
-
-  # loop through seeds and prepare commands
-  # start of python command
-  cmd="$cmd $code_folder/create_blueprint.py ${out}/temp_xtract"
-  p=""
-  for seed in ${seeds[@]}; do
-      r=`basename $seed`
-      r=`echo ${r%%.@(nii|nii.gz|gii|surf.gii|asc)}`    # remove extensions
-
-      p="$p $out/omatrix2/omatrix2_$r"
-  done
-  py_args=`join_str , $p`
-  py_args="$py_args `join_str , ${seeds[@]}`"
-
-  # if using medial wall
-  if [ ! "$rois" == "" ]; then
-      py_args="$py_args `join_str , ${rois[@]}`"
-  else
-      py_args="$py_args x"
-  fi
-  cmd="$cmd $py_args $tract_list $distnorm $savetxt $prefix"
-  if [ $keepfiles == 0 ]; then
-    cmd="$cmd; rm -rf ${out}/temp_xtract"
-  fi
-  echo "$cmd" >> $commands_2
-  chmod +x $commands_2
-fi
+    cmd += f'{py_args} -tracts {",".join(tracts)}'
+    if argsa.savetxt:
+        cmd += f' -savetxt {argsa.savetxt}'
+    if argsa.distnorm:
+        cmd += f' -distnorm {argsa.distnorm}'
+    if argsa.prefix is not None:
+        cmd += f' -prefix {argsa.prefix}'
+    if argsa.keepfiles is True:
+        cmd += f'; rm -rf {os.path.join(out, "temp_xtract")}'
+        
+    with open(commands_2, 'a') as f:
+        print(f'{cmd}', file=f)
+    subprocess.run(['chmod', '+x', commands_2]);
 
 
-run(){
-    # run <command> [job_id to wait for]
-    commands=$1
-    out=$2
-    step=$3
-    JID=$4
-    waitforme=""
-    if [ "x$JID" != "x" ]; then waitforme="-j $JID"; fi
-    if [ $step == 1 ]; then
-      	if [ $gpu -eq 0 ]; then
-      	    JID=`fsl_sub -T 1440 -R 40 -l $out/logs -N blueprint_track -t $commands`
-      	else
-      	    JID=`fsl_sub -T 300 -R 40 --coprocessor=cuda -l $out/logs -N blueprint_track -t $commands`
-      	fi
-    elif [ $step == 2 ]; then
-  	    JID=`fsl_sub -T 300 -R 100 $waitforme -l $out/logs -N blueprint_py sh $commands`
-    fi
-  echo $JID
-}
-
-echo ""
-echo "Launching job(s)"
-echo ""
 # Launch jobs
-if [ $stage == 1 ];then
-    run $commands_1 $out $stage
-elif [ $stage == 2 ];then
-    run $commands_2 $out $stage
-else
-    jid=`eval run $commands_1 $out 1`
-    echo "probtrack jobID: $jid"
-    jid=`eval run $commands_2 $out 2 $jid`
-    echo "blueprint jobID: $jid"
-fi
+print('\nLaunching job(s)\n')
+# function to run jobs, handling jodIDs and dependencies
+def run_job(command_file, out, step, jobID=''):
+    if step == 1:
+        if argsa.gpu:
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[0]), '-R', str(argsa.M[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+        else:
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[0]), '-R', str(argsa.M[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+    elif step == 2:
+        if jobID != '':
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[1]), '-R', str(argsa.M[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+        else:
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[1]), '-R', str(argsa.M[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
 
-exit 1
+    return JID.stdout.splitlines()[0]
 
-#EOF
+hq = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '--has_queues'], capture_output=True, text=True)
+if hq.stdout.rstrip() == 'Yes':
+    if stage == 1:
+        jobID = run_job(commands_1, out, stage)
+        print(f'probtrackx job ID: {jobID}')
+    elif stage == 2:
+        jobID = run_job(commands_2, out, stage)
+        print(f'blueprint job ID: {jobID}')
+    else:
+        jobID = run_job(commands_1, out, 1)
+        print(f'probtrackx Job ID: {jobID}')
+        jobID = run_job(commands_2, out, 2, jobID=jobID)
+        print(f'blueprint job ID: {jobID}')
+else:
+    if stage == 1:
+        subprocess.run([commands_1], shell=True)
+    elif stage == 2:
+        subprocess.run([commands_2], shell=True)
+    else:
+        subprocess.run([commands_1], shell=True)
+        subprocess.run([commands_2], shell=True)
+quit()
