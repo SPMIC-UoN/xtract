@@ -1,7 +1,7 @@
 #!/usr/bin/env fslpython
 
 # Written by Shaun Warrington, Saad Jbabdi & Stam Sotiropoulos (based on Marius de Groot autoPtx code)
-# Human and Macaque protocols created by Rogier Mars et al.
+# Human and Macaque protocols created by Shaun Warrington, Rogier Mars et al.
 # Neonate protocols created by Ellie Thompson et al.
 # Multi-template macaque protocols created by Stephania Assimopoulos et al.
 
@@ -24,25 +24,25 @@ def imgtest(fname):
     r = subprocess.run([f'{os.path.join(FSLbin, "imtest")} {fname}'], capture_output=True, text=True, shell=True)
     return int(r.stdout)
     
-def applywarp(fin, out, ref, warp, dtype, interp2):
-    if interp2 == True:
+def applywarp(fin, out, ref, warp, dtype, interp):
+    if interp == 'tri':
         r = subprocess.run([os.path.join(FSLbin, "applywarp"), '-i', fin, '-o', out, '-r', ref, '-w', warp, '-d', dtype, '--interp=trilinear'])
         subprocess.run([os.path.join(FSLbin, 'fslmaths'), out, '-thr', str(0.1), '-bin', out, '-odt', 'char'])
     else:
         r = subprocess.run([os.path.join(FSLbin, "applywarp"), '-i', fin, '-o', out, '-r', ref, '-w', warp, '-d', dtype, '--interp=nn'])
 
-def applyisoxfm(fin, out, res, refimg, interp2):
-    if interp2 == True:
+def applyisoxfm(fin, out, res, refimg, interp):
+    if interp == 'tri':
         subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp trilinear'])
         subprocess.run([os.path.join(FSLbin, 'fslmaths'), out, '-thr', str(0.1), '-bin', out, '-odt', 'char'])
     else:
         subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp nearestneighbour'])
 
-def warp_masks_to_space(refimg, warp, maskdict, interp2):
+def warp_masks_to_space(refimg, warp, maskdict, interp):
     for m in ['seed', 'stop', 'exclude']:
         maskimg = os.path.join(maskdir, m)
         if imgtest(maskimg):
-            applywarp(maskimg, os.path.join(maskout, m), refimg, warp, 'float', interp2)
+            applywarp(maskimg, os.path.join(maskout, m), refimg, warp, 'float', interp)
             maskdict[m] = os.path.join(maskout, m)
     return maskdict
 
@@ -118,7 +118,7 @@ parser.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<ref
 
 parser.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
 parser.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
-parser.add_argument("-interp2", action="store_true", default=False, help="If native/ref: default interpolation of protocol ROIs is nearest neighbour (since vXXX). The previous method (trinlinear plus thresholding) is available using this flag")
+parser.add_argument("-interp", choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trinlinear plus thresholding ('tri') is available")
 parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
 parser.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
 parser.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
@@ -134,7 +134,7 @@ argsa = parser.parse_args()
 # argsa.structureList = '/home/mszsaw2/ac_dev/Human/strlist'
 # argsa.gpu = True
 # argsa.res = 0
-# argsa.interp2 = False
+# argsa.interp = False
 
 # if print_tract_list, then print and quit
 if argsa.print_list and (argsa.species is None):
@@ -149,7 +149,7 @@ bpx = argsa.bpx
 out = argsa.out
 spec = argsa.species
 res = argsa.res
-interp2 = argsa.interp2
+interp = argsa.interp
 errflag = 0
             
 # check compulsory arguments
@@ -332,11 +332,11 @@ for struct, nseed in structure_arr:
     if argsa.native:
         print(f"{struct} -- transforming masks into native space")
         os.makedirs(maskout, exist_ok=True)
-        maskdict = warp_masks_to_space(nodif_bm, std2diff, maskdict, interp2)
+        maskdict = warp_masks_to_space(nodif_bm, std2diff, maskdict, interp)
     elif argsa.ref is not False:
         print(f"{struct} -- transforming masks into ref space")
         os.makedirs(maskout, exist_ok=True)
-        maskdict = warp_masks_to_space(ref, std2ref, maskdict, interp2)
+        maskdict = warp_masks_to_space(ref, std2ref, maskdict, interp)
     else:
         for m in ['seed', 'stop', 'exclude']:
             maskimg = os.path.join(maskdir, f'{m}.nii.gz')
@@ -360,14 +360,14 @@ for struct, nseed in structure_arr:
     if argsa.native:
         for tfile in targets:
             t = os.path.join(maskout, os.path.basename(tfile))
-            applywarp(tfile, t, nodif_bm, std2diff, 'float', interp2)
+            applywarp(tfile, t, nodif_bm, std2diff, 'float', interp)
         with open(targetfile, 'w') as f:
             print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)
         maskdict['target'] = targetfile
     elif argsa.ref is not False:
         for tfile in targets:
             t = os.path.join(maskout, os.path.basename(tfile))
-            applywarp(tfile, t, ref, std2ref, 'float', interp2)
+            applywarp(tfile, t, ref, std2ref, 'float', interp)
         with open(targetfile, 'w') as f:
             print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)
         maskdict['target'] = targetfile
@@ -375,7 +375,7 @@ for struct, nseed in structure_arr:
         if res > 0:
             for tfile in targets:
                 t = os.path.join(maskout, os.path.basename(tfile))
-                applyisoxfm(tfile, t, res, tfile, interp2)
+                applyisoxfm(tfile, t, res, tfile, interp)
             with open(targetfile, 'w') as f:
                 print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)  
             maskdict['target'] = targetfile              
