@@ -118,7 +118,7 @@ parser.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<ref
 
 parser.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
 parser.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
-parser.add_argument("-interp", choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trinlinear plus thresholding ('tri') is available")
+parser.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trinlinear plus thresholding ('tri') is available")
 parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
 parser.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
 parser.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
