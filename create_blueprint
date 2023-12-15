@@ -4,6 +4,7 @@ import sys,os,glob,subprocess,re,shutil
 import argparse
 
 import numpy as np
+import pandas as pd
 import scipy.sparse as sps
 
 # Image stuff
@@ -47,11 +48,11 @@ argsa = parser.parse_args()
 
 # test paths
 # argsa = lambda:0
-# argsa.xtract_folder = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/temp_xtract'
-# argsa.ptx_folder = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/omatrix2/omatrix2_L.white.resampled,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/omatrix2/omatrix2_R.white.resampled,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/omatrix2/omatrix2_subseed'
-# argsa.seed_path = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.white.resampled.surf.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/R.white.resampled.surf.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/subseed'
-# argsa.roi_path = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/atlasroi.resampled.L.shape.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/atlasroi.resampled.R.shape.gii'
-# argsa.tracts = 'af_l,af_r,ar_l,ar_r,atr_l,atr_r,cbd_l,cbd_r,cbp_l,cbp_r,cbt_l,cbt_r,cst_l,cst_r,fa_l,fa_r,fma,fmi,fx_l,fx_r,ilf_l,ilf_r,ifo_l,ifo_r,mcp,mdlf_l,mdlf_r,or_l,or_r,str_l,str_r,slf1_l,slf1_r,slf2_l,slf2_r,slf3_l,slf3_r,ac,uf_l,uf_r,vof_l,vof_r,amf_l,amf_r,emc_l,emc_r,ufa_l,ufa_r'
+# argsa.xtract_folder = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/temp_xtract'
+# argsa.ptx_folder = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/omatrix2/omatrix2_L.white.resampled,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/omatrix2/omatrix2_R.white.resampled,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/omatrix2/omatrix2_subseed'
+# argsa.seed_path = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/L.white.resampled.surf.gii,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/R.white.resampled.surf.gii,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/subseed'
+# argsa.roi_path = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/atlasroi.resampled.L.shape.gii,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/atlasroi.resampled.R.shape.gii'
+# argsa.tracts = 'af_l,af_r,ar_l,ar_r,atr_l,atr_r,cbd_l,cbd_r,cbp_l,cbp_r,cbt_l,cbt_r,cst_l,cst_r,fa_l,fa_r,fma,fmi,fx_l,fx_r,ilf_l,ilf_r,ifo_l,ifo_r,mcp,mdlf_l,mdlf_r,or_l,or_r,str_l,str_r,slf1_l,slf1_r,slf2_l,slf2_r,slf3_l,slf3_r,ac,uf_l,uf_r,vof_l,vof_r,amf_l,amf_r,emc_l,emc_r,ufa_l,ufa_r,ac3,ac_tp'
 # argsa.savetxt = False
 # argsa.prefix = None
 
@@ -128,9 +129,7 @@ for idx,t in enumerate(tracts):
 tracts_mat = np.delete(tracts_mat, [trm], 1)
 for i in trm:
     tracts.pop(i)
-
 ntracts = len(tracts)
-
 
 def normalise(M):
     D       = np.sum(M,axis=1)
@@ -140,7 +139,7 @@ def normalise(M):
 
 def load_fdt(fdt_path, norm=True):
     print('Reading tractography matrix. This may take a few minutes...')
-    mat         = np.loadtxt(fdt_path)
+    mat         = pd.read_csv(fdt_path, header=None, dtype={0:np.int32, 1:np.int32, 2:np.float32}, delim_whitespace=True).to_numpy()
     data        = mat[:-1, -1]
     rows        = np.array(mat[:-1, 0]-1, dtype=int)
     cols        = np.array(mat[:-1, 1]-1, dtype=int)
