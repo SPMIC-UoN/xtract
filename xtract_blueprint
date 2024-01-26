@@ -6,6 +6,7 @@ import argparse
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
 ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_gpu binary
+ptxbin = os.path.join(FSLbin, 'probtrackx2') # Location of probtrackx2 binary
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
 # some useful functions
@@ -95,30 +96,12 @@ parser.add_argument("-M", metavar='<int>', nargs=2, type=int, help="Memory (GB) 
 parser.add_argument("-T", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
 argsa = parser.parse_args()
 
-# # test paths
-# argsa = lambda:0
-# argsa.bpx = '/data/Q1200/Diffusion/100307/T1w/Diffusion.bedpostX'
-# argsa.out = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint'
-# argsa.xtract = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new'
-# argsa.seeds = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.white.resampled.surf.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/R.white.resampled.surf.gii'
-# argsa.rois = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.pial.resampled.surf.gii,/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/L.pial.resampled.surf.gii'
-# argsa.target = '/data/Q1200/Structural/100307/MNINonLinear/ROIs/Whole_Brain_Trajectory_ROI_2.nii.gz'
-# argsa.warps = ['/usr/local/fsl-6.0.6/data/standard/MNI152_T1_2mm_brain.nii.gz', '/data/Q1200/Structural/100307/MNINonLinear/xfms/standard2acpc_dc.nii.gz', '/data/Q1200/Structural/100307/MNINonLinear/xfms/acpc_dc2standard.nii.gz']
-# argsa.subseed = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/subcortical_seeds/subcort.nii.gz'
-# argsa.stops = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/stop'
-# argsa.wtstops = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint/wtstop'
-# argsa.tract_list = 'af_l,af_r,ar_l,ar_r,atr_l,atr_r,cbd_l,cbd_r,cbp_l,cbp_r,cbt_l,cbt_r,cst_l,cst_r,fa_l,fa_r,fma,fmi,fx_l,fx_r,ilf_l,ilf_r,ifo_l,ifo_r,mdlf_l,mdlf_r,or_l,or_r,str_l,str_r,slf1_l,slf1_r,slf2_l,slf2_r,slf3_l,slf3_r,ac,uf_l,uf_r,vof_l,vof_r'
-# argsa.gpu = True
-# argsa.ptx_options = False
-# argsa.nsamples = 1000
-# argsa.thr = 0.001
-# argsa.keepfiles = False
-# argsa.distnorm = False
-# argsa.prefix = ''
-# argsa.stage = 0
-# argsa.res = 3
-# 
-# argsa.distnorm = False
+# print versions (xtract, xtract_data, ptx2)
+verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
+verlist = verlist.stdout.split('\n')
+verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
+print('Versions:')
+verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
 
 # rename arguments for ease
 bpx = argsa.bpx
@@ -228,7 +211,6 @@ if argsa.gpu:
     if argsa.T is None:
         argsa.T = [300, 300]
 else:
-    ptxbin = os.path.join(FSLbin, 'probtrackx2')
     print('Warning: not using GPU mode - this may take a while. Consider downsampling the seed mask.')
     if argsa.M is None:
         argsa.M = [40, 100]
@@ -264,6 +246,7 @@ if stage != 1:
     else:
         tracts = glob.glob(os.path.join(xtract, 'tracts', '*', 'densityNorm.nii.gz'))
         tracts = [os.path.basename(os.path.dirname(t)) for t in tracts]
+        tracts.sort()
 
 # Resample ref to get target2
 if res > 0:
@@ -291,7 +274,7 @@ if stage != 2:
     working_dirs = []
     for COUNTER, seed in enumerate(seeds):
         r = remove_ext(os.path.basename(seed))
-        print(f'\nSeed {COUNTER+1}:\n')
+        print(f'\nSeed {COUNTER+1}:')
         print(f'seed {r}', end="")
         working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
         os.makedirs(working_dirs[COUNTER], exist_ok=True)
@@ -368,10 +351,8 @@ if stage != 1:
             
     # loop through seeds and prepare commands
     # start of python command
-    # cmd += f' {os.path.join(FSLbin, "create_blueprint")} -xtract_folder {os.path.join(out, "temp_xtract")}'
-    cmd += f' {os.path.join("/home/mszsaw2", "create_blueprint")} -xtract_folder {os.path.join(out, "temp_xtract")}'
-    # p = [os.path.join(out, 'omatrix2', f'omatrix2_{remove_ext(os.path.basename(seed))}') for seed in seeds]
-
+    cmd += f' {os.path.join(FSLbin, "create_blueprint")} -xtract_folder {os.path.join(out, "temp_xtract")}'
+    
     working_dirs = []
     for seed in seeds:
         r = remove_ext(os.path.basename(seed))
@@ -412,7 +393,6 @@ def run_job(command_file, out, step, jobID=''):
             JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[1]), '-R', str(argsa.M[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
         else:
             JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[1]), '-R', str(argsa.M[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
-
     return JID.stdout.splitlines()[0]
 
 hq = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '--has_queues'], capture_output=True, text=True)
