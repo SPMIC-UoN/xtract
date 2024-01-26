@@ -12,7 +12,6 @@ FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
 ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_gpu binary
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
-# datadir = '/Users/shaunwarrington/Library/CloudStorage/OneDrive-TheUniversityofNottingham/Deliverables/xtract_dev/git/xtract_data'
 
 # some useful functions
 def errchk(errflag):
@@ -120,21 +119,19 @@ parser.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (
 parser.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
 parser.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trinlinear plus thresholding ('tri') is available")
 parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
+parser.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
 parser.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
 parser.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
 argsa = parser.parse_args()
 
-# # test paths
-# argsa = lambda:0
-# argsa.bpx = '/data/Q1200/Diffusion/100307/T1w/Diffusion.bedpostX'
-# argsa.out = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new/blueprint'
-# argsa.species = 'HUMAN'
-# argsa.stdwarp = ['/data/Q1200/Structural/100307/MNINonLinear/xfms/standard2acpc_dc.nii.gz', '/data/Q1200/Structural/100307/MNINonLinear/xfms/acpc_dc2standard.nii.gz']
-# argsa.p = '/home/mszsaw2/ac_dev/Human'
-# argsa.structureList = '/home/mszsaw2/ac_dev/Human/strlist'
-# argsa.gpu = True
-# argsa.res = 0
-# argsa.interp = False
+# print versions (xtract, xtract_data, ptx2)
+verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
+verlist = verlist.stdout.split('\n')
+verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
+print('Versions:')
+verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
+
+[t.replace(' ', '') for t in verlist]
 
 # if print_tract_list, then print and quit
 if argsa.print_list and (argsa.species is None):
@@ -249,7 +246,7 @@ if argsa.gpu:
     ptxbin = ptxbin_gpu
 else:
     ptxbin = os.path.join(FSLbin, 'probtrackx2')
-    
+
 ptx_opts = ''
 if argsa.ptx_options:
     f = open(argsa.ptx_options, "r")
@@ -400,10 +397,6 @@ for struct, nseed in structure_arr:
     if os.path.isfile(os.path.join(maskdir, 'wayorder')):
         struct_opts1 += f' --wayorder --waycond=AND'
         
-    # if os.path.isfile(os.path.join(maskdir, 'wayorder')) and os.path.isfile(os.path.join(maskdir, 'invert')):
-    #     print('Invert and wayorder options selected. Cannot use both! Exiting now')
-    #     quit()
-        
     # outputs
     struct_opts1 += f' -o density --dir={structdir}'
     
@@ -439,43 +432,18 @@ for struct, nseed in structure_arr:
         addcmd = f'echo "scale=5; `cat {os.path.join(structdir, "waytotal")}` + `cat {os.path.join(structdir_inv, "waytotal")}` "|bc > {os.path.join(structdir, "sum_waytotal")}'
         # Waypoint normalisation (create command but don't execute)
         normcmd = f'{os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -div `cat {os.path.join(structdir, "sum_waytotal")}` {os.path.join(structdir, "densityNorm")}'
-        normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -log -div `cat {os.path.join(structdir, "sum_waytotal")}` {os.path.join(structdir, "densityLogNorm")}'
-        normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -div `cat {os.path.join(structdir, "sum_waytotal")}` -add 1 -log {os.path.join(structdir, "densityNormAddLog")}'
+        # normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -log -div `cat {os.path.join(structdir, "sum_waytotal")}` {os.path.join(structdir, "densityLogNorm")}'
+        # normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -div `cat {os.path.join(structdir, "sum_waytotal")}` -add 1 -log {os.path.join(structdir, "densityNormAddLog")}'
         # Append to command list
         with open(commands, 'a') as f:
             print(f'{ptxbin} {struct_opts1}; {ptxbin} {struct_opts2}; {mergecmd}; {addcmd}; {normcmd}', file=f)
-    
-        # if imgtest(os.path.join(maskdir, 'target')):
-        #     structdir_inv = os.path.join(structdir, 'tractsInv')
-        #     os.makedirs(structdir_inv, exist_ok=True)
-        #     if imgtest(os.path.join(maskout, 'target')):
-        #         target = os.path.join(maskout, 'target')
-        #     else:
-        #         target = os.path.join(maskdir, 'target')
-        # 
-        #     struct_opts2 = f'{struct_opts} --nsamples={nseed} -x {target}' # could change this seed definition to text file of the targets for invert/wayorder combined
-        #     struct_opts2 += f' --waypoints={maskdict["seed"]}'
-        #     struct_opts2 += f' -o density --dir={structdir_inv}'
-        # 
-        #     mergecmd = f'{os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "density")} -add {os.path.join(structdir_inv, "density")} {os.path.join(structdir, "sum_density")}'
-        #     #Add waypoints (create command but don't execute)
-        #     addcmd = f'echo "scale=5; `cat {os.path.join(structdir, "waytotal")}` + `cat {os.path.join(structdir_inv, "waytotal")}` "|bc > {os.path.join(structdir, "sum_waytotal")}'
-        #     # Waypoint normalisation (create command but don't execute)
-        #     normcmd = f'{os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -div `cat {os.path.join(structdir, "sum_waytotal")}` {os.path.join(structdir, "densityNorm")}'
-        #     normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -log -div `cat {os.path.join(structdir, "sum_waytotal")}` {os.path.join(structdir, "densityLogNorm")}'
-        #     normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "sum_density")} -div `cat {os.path.join(structdir, "sum_waytotal")}` -add 1 -log {os.path.join(structdir, "densityNormAddLog")}'
-        #     # Append to command list
-        #     with open(commands, 'a') as f:
-        #         print(f'{ptxbin} {struct_opts1}; {ptxbin} {struct_opts2}; {mergecmd}; {addcmd}; {normcmd}', file=f)
-        # else:
-        #     print("Invert Option selected, but more than one target defined! A 'target.nii.gz' is expected. Exiting now")
-        #     quit()
+
     else: # No invert-mode
         # Waypoint normalisation (create command but don't execute)
         normcmd = f'{os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "density")} -div `cat {os.path.join(structdir, "waytotal")}` {os.path.join(structdir, "densityNorm")}'
         # Waypoint normalisation (create command but don't execute)
-        normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "density")} -log -div `cat {os.path.join(structdir, "waytotal")}` {os.path.join(structdir, "densityLogNorm")}'
-        normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "density")} -div `cat {os.path.join(structdir, "waytotal")}` -add 1 -log {os.path.join(structdir, "densityNormAddLog")}'
+        # normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "density")} -log -div `cat {os.path.join(structdir, "waytotal")}` {os.path.join(structdir, "densityLogNorm")}'
+        # normcmd += f'; {os.path.join(FSLbin, "fslmaths")} {os.path.join(structdir, "density")} -div `cat {os.path.join(structdir, "waytotal")}` -add 1 -log {os.path.join(structdir, "densityNormAddLog")}'
         # Append to command list
         with open(commands, 'a') as f:
             print(f'{ptxbin} {struct_opts1}; {normcmd}', file=f)
@@ -487,16 +455,27 @@ hq = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '--has_queues'], capture_o
 if hq.stdout.rstrip() == 'Yes':
     if argsa.gpu:
         if argsa.par:
-            subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '60', '-R', '30', '-n', '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'xtract', '-t', commands])
+            if argsa.queue is None:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '60', '-R', '30', '-n', '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'xtract', '-t', commands])
+            else:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-q', argsa.queue, '-T', '60', '-R', '30', '-n', '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'xtract', '-t', commands])
         else:
-            subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '600', '-R', '30', '-n', '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'xtract', 'sh', commands])
+            if argsa.queue is None:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '600', '-R', '30', '-n', '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'xtract', 'sh', commands])
+            else:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-q', argsa.queue, '-T', '600', '-R', '30', '-n', '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'xtract', 'sh', commands])
     else:
         if argsa.par:
-            subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '300', '-R', '30', '-n', '-l', os.path.join(out, "logs"), '-N', 'xtract', '-t', commands])
+            if argsa.queue is None:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '300', '-R', '30', '-n', '-l', os.path.join(out, "logs"), '-N', 'xtract', '-t', commands])
+            else:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-q', argsa.queue, '-T', '300', '-R', '30', '-n', '-l', os.path.join(out, "logs"), '-N', 'xtract', '-t', commands])
         else:
-            subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '10080', '-R', '30', '-n', '-l', os.path.join(out, "logs"), '-N', 'xtract', 'sh', commands, '&'])
+            if argsa.queue is None:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', '10080', '-R', '30', '-n', '-l', os.path.join(out, "logs"), '-N', 'xtract', 'sh', commands])#, '&'])
+            else:
+                subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-q', argsa.queue, '-T', '10080', '-R', '30', '-n', '-l', os.path.join(out, "logs"), '-N', 'xtract', 'sh', commands])#, '&'])
 else:
     subprocess.run([commands], shell=True)
-
 
 quit()
