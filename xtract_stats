@@ -59,20 +59,6 @@ parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list 
 parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to tracts (default = 0.001).")
 argsa = parser.parse_args()
 
-
-# # test paths
-# argsa = lambda:0
-# argsa.xtract = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new'
-# argsa.out = None
-# # argsa.out = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new'
-# argsa.d = '/data/Q1200/Diffusion/100307/T1w/Diffusion/DTI/dti_'
-# argsa.warp = ['/data/Q1200/Diffusion/100307/T1w/Diffusion/DTI/dti_FA', '/data/Q1200/Structural/100307/MNINonLinear/xfms/standard2acpc_dc.nii.gz']
-# argsa.thr = 0.001
-# argsa.tract_list = None
-# argsa.tract_list = 'af_l,af_r,fmi,mcp'
-# argsa.meas = 'vol,prob,length,FA,MD'
-
-
 xtract = argsa.xtract
 thr = str(argsa.thr)
 meas_dir = argsa.d
