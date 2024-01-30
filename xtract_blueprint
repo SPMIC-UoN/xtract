@@ -5,6 +5,7 @@ import argparse
 
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
+FSLINFMRIB = os.getenv('FSLINFMRIB')
 ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_gpu binary
 ptxbin = os.path.join(FSLbin, 'probtrackx2') # Location of probtrackx2 binary
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
@@ -92,8 +93,13 @@ parser.add_argument("-ptx_options", metavar='<options.txt>', default=False, help
 # Optional computing arguments:
 parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
 parser.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
-parser.add_argument("-M", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
-parser.add_argument("-T", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
+
+if FSLINFMRIB is not None:
+    parser.add_argument("-dev_create", metavar='<path>', default=None, help="Path to development create_blueprint script (default=$FSLDIR/bin/create_blueprint)")
+    parser.add_argument("-M", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
+    parser.add_argument("-T", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
+    parser.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
+
 argsa = parser.parse_args()
 
 # print versions (xtract, xtract_data, ptx2)
@@ -114,9 +120,18 @@ stage = argsa.stage
 native = argsa.native
 errflag = 0
 
-# hidden options
-# waypoints=""
-argsa.distnorm = False
+if FSLINFMRIB is not None:
+    if argsa.dev_create is None:
+        cbp_path = os.path.join(FSLbin, "create_blueprint")
+    else:
+        cbp_path = argsa.dev_create
+else:
+    cbp_path = os.path.join(FSLbin, "create_blueprint")
+
+if FSLINFMRIB is not None:
+    distnorm = argsa.distnorm
+else:
+    distnorm = False
             
 # check compulsory arguments
 # input directories
@@ -206,16 +221,33 @@ errchk(errflag)
 # GPU option
 if argsa.gpu:
     ptxbin = ptxbin_gpu
-    if argsa.M is None:
-        argsa.M = [40, 100]
-    if argsa.T is None:
-        argsa.T = [300, 300]
+    if FSLINFMRIB is not None:
+        if argsa.submem is None:
+            submem = [40, 100]
+        else:
+            submem = argsa.submem
+        if argsa.subtime is None:
+            subtime = [300, 300]
+        else:
+            subtime = argsa.subtime
+    else:
+        submem = [40, 100]
+        subtime = [300, 300]
 else:
     print('Warning: not using GPU mode - this may take a while. Consider downsampling the seed mask.')
-    if argsa.M is None:
-        argsa.M = [40, 100]
-    if argsa.T is None:
-        argsa.T = [1440, 300]
+    if FSLINFMRIB is not None:
+        if argsa.submem is None:
+            submem = [40, 100]
+        else:
+            submem = argsa.submem
+        if argsa.subtime is None:
+            subtime = [1440, 300]
+        else:
+            subtime = argsa.subtime
+    else:
+        submem = [40, 100]
+        subtime = [1440, 300]
+
 
 additional_opts = ''
 if argsa.ptx_options:
@@ -351,7 +383,7 @@ if stage != 1:
             
     # loop through seeds and prepare commands
     # start of python command
-    cmd += f' {os.path.join(FSLbin, "create_blueprint")} -xtract_folder {os.path.join(out, "temp_xtract")}'
+    cmd += f' {cbp_path} -xtract_folder {os.path.join(out, "temp_xtract")}'
     
     working_dirs = []
     for seed in seeds:
@@ -367,8 +399,8 @@ if stage != 1:
     cmd += f'{py_args} -tracts {",".join(tracts)}'
     if argsa.savetxt:
         cmd += f' -savetxt {argsa.savetxt}'
-    if argsa.distnorm:
-        cmd += f' -distnorm {argsa.distnorm}'
+    if distnorm:
+        cmd += f' -distnorm {distnorm}'
     if argsa.prefix is not None:
         cmd += f' -prefix {argsa.prefix}'
     if argsa.keepfiles is True:
@@ -385,14 +417,14 @@ print('\nLaunching job(s)\n')
 def run_job(command_file, out, step, jobID=''):
     if step == 1:
         if argsa.gpu:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[0]), '-R', str(argsa.M[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
         else:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[0]), '-R', str(argsa.M[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
     elif step == 2:
         if jobID != '':
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[1]), '-R', str(argsa.M[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
         else:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(argsa.T[1]), '-R', str(argsa.M[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
     return JID.stdout.splitlines()[0]
 
 hq = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '--has_queues'], capture_output=True, text=True)
