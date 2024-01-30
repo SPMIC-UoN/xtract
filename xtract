@@ -9,6 +9,7 @@ import sys,os,glob,subprocess
 import argparse
 
 FSLDIR = os.getenv('FSLDIR')
+FSLINFMRIB = os.getenv('FSLINFMRIB')
 FSLbin = os.path.join(FSLDIR, 'bin')
 ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_gpu binary
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
@@ -119,19 +120,26 @@ parser.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (
 parser.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
 parser.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trinlinear plus thresholding ('tri') is available")
 parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
-parser.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
 parser.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
 parser.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
+parser.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
+
+if FSLINFMRIB is not None:
+    parser.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
+
 argsa = parser.parse_args()
 
-# print versions (xtract, xtract_data, ptx2)
-verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
-verlist = verlist.stdout.split('\n')
-verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
-print('Versions:')
-verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
+if FSLINFMRIB is None:
+    argsa.queue = None
 
-[t.replace(' ', '') for t in verlist]
+# print versions (xtract, xtract_data, ptx2)
+if argsa.version:
+    verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
+    verlist = verlist.stdout.split('\n')
+    verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
+    print('Versions:')
+    verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
+    print('\n')
 
 # if print_tract_list, then print and quit
 if argsa.print_list and (argsa.species is None):
