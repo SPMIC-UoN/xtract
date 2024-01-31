@@ -93,21 +93,24 @@ parser.add_argument("-ptx_options", metavar='<options.txt>', default=False, help
 # Optional computing arguments:
 parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
 parser.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
+parser.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
 
 if FSLINFMRIB is not None:
     parser.add_argument("-dev_create", metavar='<path>', default=None, help="Path to development create_blueprint script (default=$FSLDIR/bin/create_blueprint)")
-    parser.add_argument("-M", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
-    parser.add_argument("-T", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
+    parser.add_argument("-submem", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
+    parser.add_argument("-subtime", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
     parser.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
 
 argsa = parser.parse_args()
 
 # print versions (xtract, xtract_data, ptx2)
-verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
-verlist = verlist.stdout.split('\n')
-verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
-print('Versions:')
-verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
+if argsa.version:
+    verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
+    verlist = verlist.stdout.split('\n')
+    verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
+    print('Versions:')
+    verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
+    print('\n')
 
 # rename arguments for ease
 bpx = argsa.bpx
