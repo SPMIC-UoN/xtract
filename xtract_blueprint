@@ -70,7 +70,6 @@ parser = MyParser(prog='XTRACT Blueprint',
 
 # Compulsory arguments:
 parser.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder", required=True)
-parser.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
 parser.add_argument("-xtract", metavar='<folder>', help="Path to xtract folder", required=True)
 parser.add_argument("-seeds", metavar='<list>', help="Comma separated list of seeds for which a blueprint is requested (e.g. left and right cortex in standard space)", required=True)
 parser.add_argument("-target", metavar='<mask>', help="A whole brain/WM binary target mask in the same space as the seeds", required=True)
@@ -80,6 +79,7 @@ parser.add_argument("-warps", metavar='<path>', nargs=3, help="<ref> <xtract2dif
 parser.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
 
 # Optional arguments:
+parser.add_argument("-out", metavar='<folder>', help="Path to output folder (default is <xtract_dir>/blueprint)")
 parser.add_argument("-stage", choices=[0, 1, 2], default=0, type=int, help="What to run. 0:everythng (default), 1:matrix2, 2:blueprint")
 parser.add_argument("-savetxt", action="store_true", default=False, help="Save blueprint as txt file (nseed by ntracts) instead of CIFTI")
 parser.add_argument("-prefix", metavar='<string>', help="Specify a prefix for the final blueprint filename (e.g. <prefix>_BP.LR.dscalar.nii)")
@@ -147,8 +147,6 @@ else:
 if not os.path.isdir(bpx):
     print(f'Bedpostx folder {bpx} not found')
     errflag = 1
-if os.path.isdir(out):
-    print('Warning: output directory already exists. XTRACT may overwrite existing content.')
 if not os.path.isdir(xtract):
     print(f'Bedpostx folder {xtract} not found')
     errflag = 1
@@ -276,6 +274,11 @@ elif stage == "all":
 
 
 # make output directories
+if out is None:
+    out = os.path.join(xtract, 'blueprint')
+if os.path.isdir(out):
+    print('Warning: output directory already exists. XTRACT may overwrite existing content.')
+
 os.makedirs(out, exist_ok=True)
 os.makedirs(os.path.join(out, 'omatrix2'), exist_ok=True)
 
