@@ -1,7 +1,7 @@
 #!/usr/bin/env fslpython
 
 import sys,os,glob,subprocess,shutil
-import argparse
+import argparse, textwrap
 
 import numpy as np
 import pandas as pd
@@ -56,7 +56,10 @@ print(splash)
 
 parser = MyParser(prog='XTRACT QC',
                   description='xtract_qc: quality control at the group-level',
-                  epilog='')
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract_qc -subject_list sublist.txt -out /data/xtract_qc
+                                         '''))
 
 # Compulsory arguments:
 parser.add_argument("-subject_list", metavar='<txt>', help="Text file containing line separated subject-wise paths to XTRACT folders", required=True)
@@ -68,18 +71,6 @@ parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="
 parser.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
 parser.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
 argsa = parser.parse_args()
-
-
-# 
-# # test paths
-# argsa = lambda:0
-# argsa.subject_list = '/home/mszsaw2/scripts_dev/small_list'
-# argsa.out = '/home/mszsaw2/xtract_qc_py_test'
-# argsa.tract_list = 'af_l,af_r,ar_l,ar_r,atr_l,atr_r,cbd_l,cbd_r,cbp_l,cbp_r,cbt_l,cbt_r,cst_l,cst_r,fa_l,fa_r,fma,fmi,fx_l,fx_r,ilf_l,ilf_r,ifo_l,ifo_r,mdlf_l,mdlf_r,or_l,or_r,str_l,str_r,slf1_l,slf1_r,slf2_l,slf2_r,slf3_l,slf3_r,ac,uf_l,uf_r,vof_l,vof_r'
-# argsa.thr = 0.001
-# argsa.n_std = 2
-# argsa.use_prior = False
-
 
 subject_list = argsa.subject_list
 out = argsa.out
@@ -166,7 +157,7 @@ for ns, sub_path in enumerate(subject_list):
     # check the subject directory exists
     if os.path.isdir(sub_path) is False:
         subcheck[ns] = 1
-        print(f' : {subpath} missing', end="")
+        print(f' : {sub_path} missing', end="")
     else:
         if argsa.use_prior and os.path.isfile(os.path.join(sub_out, 'filecheck')) and os.path.isfile(os.path.join(sub_out, 'waytotal')) and os.path.isfile(os.path.join(sub_out, 'volume')):
             filecheck_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'filecheck'))

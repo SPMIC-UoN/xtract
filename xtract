@@ -6,7 +6,7 @@
 # Multi-template macaque protocols created by Stephania Assimopoulos et al.
 
 import sys,os,glob,subprocess
-import argparse
+import argparse,textwrap
 
 FSLDIR = os.getenv('FSLDIR')
 FSLINFMRIB = os.getenv('FSLINFMRIB')
@@ -99,7 +99,10 @@ print(splash)
 
 parser = MyParser(prog='XTRACT',
                   description='XTRACT: Cross-species tractgraphy',
-                  epilog='')
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract -bpx /data/Diffusion.bedpostX -out /data/xtract -species HUMAN -stdwarp std2diff.nii.gz diff2std.nii.gz -gpu
+                  '''))
     
 # Compulsory arguments:
 parser.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder")
@@ -113,9 +116,11 @@ parser.add_argument("-p", metavar='<folder>', help=f"Protocols folder (all masks
 parser.add_argument("-stdref", metavar='<reference>', help=f"Standard space reference image (Default = {os.path.join(FSLDIR, 'data', 'standard', 'MNI152_T1_1mm [HUMAN]')}, {os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain [MACAQUE]')}, {os.path.join(datadir, 'standard', 'neonate', 'mri', 'schuh_template [HUMAN_BABY]')}")
 parser.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <diff2std> Non-linear Standard2diff and Diff2standard transforms (Default={os.path.join('bedpostx_dir', 'xfms', '{standard2diff.nii.gz,diff2standard.nii.gz}')})")
 
+# Optional space arguments:
 parser.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
 parser.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<refimage> <diff2ref> <ref2diff> Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms")
 
+# Optional tracking/computing arguments:
 parser.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
 parser.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
 parser.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trinlinear plus thresholding ('tri') is available")

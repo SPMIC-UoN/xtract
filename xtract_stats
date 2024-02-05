@@ -4,7 +4,7 @@ import sys,os,glob,subprocess,shutil,tempfile
 import pandas as pd
 import numpy as np
 import nibabel as nib
-import argparse
+import argparse, textwrap
 
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
@@ -45,7 +45,10 @@ print(splash)
 
 parser = MyParser(prog='XTRACT Stats',
                   description='xtract_stats: summary tract-wise measures',
-                  epilog='')
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract_stats -xtract /data/xtract -d /data/Diffusion/dti_ -warp std2diff.nii.gz
+                                         '''))
 
 # Compulsory arguments:
 parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)

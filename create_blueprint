@@ -1,7 +1,7 @@
 #!/usr/bin/env fslpython
 
 import sys,os,glob,subprocess,re,shutil
-import argparse
+import argparse, textwrap
 
 import numpy as np
 import pandas as pd
@@ -264,7 +264,7 @@ elif seed_type == 1:
     np.savetxt(new_fname_tord, tracts, fmt="%s")
 
     # if savetxt save blueprint as txt
-    if savetxt == 1:
+    if argsa.savetxt == 1:
         new_fname = os.path.join(out_folder, f'{prefix}BP.LR.txt')
         np.savetxt(new_fname, BP)
     else:

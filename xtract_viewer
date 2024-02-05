@@ -1,10 +1,11 @@
 #!/usr/bin/env fslpython
 
 import sys,os,glob,subprocess,shutil
-import argparse
+import argparse, textwrap
 
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
+datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
 # some useful functions
 def errchk(errflag):
@@ -40,7 +41,10 @@ print(splash)
 
 parser = MyParser(prog='XTRACT Viewer',
                   description='xtract_viewer: quick visualisation of xtract results in fsleyes',
-                  epilog='')
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract_viewer -xtract /data/xtract -species HUMAN
+                                         '''))
 
 # Compulsory arguments:
 parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
@@ -52,19 +56,6 @@ parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list 
 parser.add_argument("-thr", metavar='<float>', default=[0.001, 0.1], nargs=2, type=float, help="Upper and lower threshold applied to tracts for viewing (default = [0.001 0.1]).")
 parser.add_argument("-print_cmd", action="store_true", default=False, help="Print the fsleyes command?")
 argsa = parser.parse_args()
-
-# test paths
-# argsa = lambda:0
-# argsa.xtract = '/data/Q1200/Diffusion/100307/MNINonLinear/Results/xtract_new'
-# argsa.species = 'HUMAN'
-# argsa.brain = None
-# argsa.thr = [0.001, 0.1]
-# argsa.print_cmd = False
-# argsa.tract_list = None
-# argsa.tract_list = 'af_l,af_r,fmi,mcp'
-# 
-# 
-
 
 xtract = argsa.xtract
 spec = argsa.species
@@ -87,7 +78,7 @@ errchk(errflag)
 
 if spec == 'HUMAN' and argsa.brain is None:
     brain = os.path.join(FSLDIR, 'data', 'standard', 'FSL_HCP1065_FA_1mm')
-elif spec == in ['MACAQUE', 'MACAQUE_F99'] and argsa.brain is None:
+elif spec in ['MACAQUE', 'MACAQUE_F99'] and argsa.brain is None:
     brain = os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain')
 elif spec in ['MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_YRK', 'MACAQUE_NMT'] and argsa.brain is None:
     brain = os.path.join(datadir, 'standard', 'macaque_multitemplate', spec)

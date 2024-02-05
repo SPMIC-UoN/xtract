@@ -1,7 +1,7 @@
 #!/usr/bin/env fslpython
 
 import sys,os,glob,subprocess,shutil
-import argparse
+import argparse, textwrap
 
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
@@ -60,7 +60,13 @@ print(splash)
 
 parser = MyParser(prog='XTRACT Blueprint',
                   description='xtract_blueprint: for generating connectivity blueprints from xtract output',
-                  epilog='')
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract_blueprint -bpx /data/Diffusion.bedpostX -out /data/blueprint -xtract /data/xtract
+                                         -seeds l.white.surf.gii,r.white.surf.gii -target WM_segmentation.nii.gz
+                                         -rois l.medwall.shape.gii,r.medwall.shape.gii
+                                         -warps ref.nii.gz xtract2diff.nii.gz diff2xtract.nii.gz -gpu
+                  '''))
 
 # Compulsory arguments:
 parser.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder", required=True)
