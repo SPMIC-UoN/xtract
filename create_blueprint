@@ -46,16 +46,6 @@ parser.add_argument("-savetxt", action="store_true", default=False, help="save a
 parser.add_argument("-prefix", metavar='<string>', help="prefix for filename")
 argsa = parser.parse_args()
 
-# test paths
-# argsa = lambda:0
-# argsa.xtract_folder = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/temp_xtract'
-# argsa.ptx_folder = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/omatrix2/omatrix2_L.white.resampled,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/omatrix2/omatrix2_R.white.resampled,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/omatrix2/omatrix2_subseed'
-# argsa.seed_path = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/L.white.resampled.surf.gii,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/R.white.resampled.surf.gii,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/subseed'
-# argsa.roi_path = '/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/atlasroi.resampled.L.shape.gii,/home/mszsaw2/new_blueprint_comparisons/Human/100307/blueprint/atlasroi.resampled.R.shape.gii'
-# argsa.tracts = 'af_l,af_r,ar_l,ar_r,atr_l,atr_r,cbd_l,cbd_r,cbp_l,cbp_r,cbt_l,cbt_r,cst_l,cst_r,fa_l,fa_r,fma,fmi,fx_l,fx_r,ilf_l,ilf_r,ifo_l,ifo_r,mcp,mdlf_l,mdlf_r,or_l,or_r,str_l,str_r,slf1_l,slf1_r,slf2_l,slf2_r,slf3_l,slf3_r,ac,uf_l,uf_r,vof_l,vof_r,amf_l,amf_r,emc_l,emc_r,ufa_l,ufa_r,ac3,ac_tp'
-# argsa.savetxt = False
-# argsa.prefix = None
-
 ######################
 ####### Some preparation stuff
 ######################
@@ -152,7 +142,10 @@ def load_fdt(fdt_path, norm=True):
 # Open matrix2 file
 M = []
 for p in ptx_folder:
-        M.append(load_fdt(os.path.join(p, "fdt_matrix2.dot")))
+    if os.path.exists(os.path.join(p, "fdt_matrix2.dot.gz")):
+        subprocess.run(['gunzip', os.path.join(p, "fdt_matrix2.dot.gz")])
+    M.append(load_fdt(os.path.join(p, "fdt_matrix2.dot")))
+    subprocess.run(['gzip', os.path.join(p, "fdt_matrix2.dot"), "--fast"])
 
 if len(ptx_folder) == 2:
     print('Stacking hemispheres...')
@@ -339,14 +332,12 @@ elif seed_type == 2:
                 volume_shape=ref_img.shape,
             )
             start_idx += nvox
-
         # save cifti
         new_fname = os.path.join(out_folder, f'{prefix}BP.LR.dscalar.nii')
         sc        = cifti2_axes.ScalarAxis(tracts)
         hdr       = cifti2.Cifti2Header.from_axes((sc, bm))
         img       = cifti2.Cifti2Image(BP.T, hdr)
         nib.save(img, new_fname)
-
 
 print(f'Saved: {new_fname}')
 print('')
