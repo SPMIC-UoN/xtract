@@ -106,6 +106,7 @@ if FSLINFMRIB is not None:
     parser.add_argument("-submem", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
     parser.add_argument("-subtime", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
     parser.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
+    parser.add_argument("-job_wait", metavar='<jobID>', default=None, help="Set a job dependency (default=None)")
 
 argsa = parser.parse_args()
 
@@ -134,8 +135,11 @@ if FSLINFMRIB is not None:
         cbp_path = os.path.join(FSLbin, "create_blueprint")
     else:
         cbp_path = argsa.dev_create
+        print(f'create_blueprint path is: {cbp_path}')
+    job_wait = argsa.job_wait
 else:
     cbp_path = os.path.join(FSLbin, "create_blueprint")
+    job_wait = None
 
 if FSLINFMRIB is not None:
     distnorm = argsa.distnorm
@@ -428,10 +432,16 @@ print('\nLaunching job(s)\n')
 # function to run jobs, handling jodIDs and dependencies
 def run_job(command_file, out, step, jobID=''):
     if step == 1:
-        if argsa.gpu:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+        if job_wait is None:
+            if argsa.gpu:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+            else:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
         else:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+            if argsa.gpu:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+            else:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
     elif step == 2:
         if jobID != '':
             JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
