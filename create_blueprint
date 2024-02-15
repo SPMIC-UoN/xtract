@@ -143,9 +143,9 @@ def load_fdt(fdt_path, norm=True):
 M = []
 for p in ptx_folder:
     if os.path.exists(os.path.join(p, "fdt_matrix2.dot.gz")):
-        subprocess.run(['gunzip', os.path.join(p, "fdt_matrix2.dot.gz")])
+        foo = subprocess.run(['gunzip', os.path.join(p, "fdt_matrix2.dot.gz")])
     M.append(load_fdt(os.path.join(p, "fdt_matrix2.dot")))
-    subprocess.run(['gzip', os.path.join(p, "fdt_matrix2.dot"), "--fast"])
+    foo = subprocess.run(['gzip', os.path.join(p, "fdt_matrix2.dot"), "--fast"])
 
 if len(ptx_folder) == 2:
     print('Stacking hemispheres...')
