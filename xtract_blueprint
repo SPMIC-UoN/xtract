@@ -273,7 +273,7 @@ if stage == 1:
     print('Running tractography only')
 elif stage == 2:
     print('Running blueprint processing only')
-elif stage == "all":
+elif stage == 0:
     print('Running tractography and blueprint processing')
 
 
