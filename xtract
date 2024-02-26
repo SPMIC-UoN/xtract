@@ -98,7 +98,7 @@ splash = """
 print(splash)
 
 parser = MyParser(prog='XTRACT',
-                  description='XTRACT: Cross-species tractgraphy',
+                  description='XTRACT: Cross-species tractography',
                   formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog=textwrap.dedent('''Example usage:
                         xtract -bpx /data/Diffusion.bedpostX -out /data/xtract -species HUMAN -stdwarp std2diff.nii.gz diff2std.nii.gz -gpu
