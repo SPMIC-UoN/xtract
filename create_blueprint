@@ -1,14 +1,10 @@
 #!/usr/bin/env fslpython
 
-# Multiply a bunch of fdt_paths with a matrix2 to form a blueprint
-#
-# Author: Shaun Warrington, Saad Jbabdi, Stam Sotiropoulos
-#
-# Copyright (C) 2020 University of Oxford
-# SHBASECOPYRIGHT
+import sys,os,glob,subprocess,re,shutil
+import argparse, textwrap
 
 import numpy as np
-import sys,os,glob
+import pandas as pd
 import scipy.sparse as sps
 
 # Image stuff
@@ -18,25 +14,55 @@ from fsl.data.image import Image
 from fsl.data.cifti import cifti2_axes
 from fsl.data.cifti import Cifti
 
-xtract_folder = sys.argv[1]
-ptx_folder    = sys.argv[2] # the ptx_folder(s)- if 2, comma separated
-seed_path     = sys.argv[3] # the seed mask(s) - if 2, comma separated
-roi_path      = sys.argv[4] # using the medial wall as a mask(s)? - if 2, comma separated
-tracts        = sys.argv[5]
-savetxt       = int(sys.argv[6]) # cii (0) or txt (1)?
-prefix        = sys.argv[7]
+# some useful functions
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+
+parser = MyParser(prog='XTRACT Blueprint',
+                  description='xtract_blueprint: for generating connectivity blueprints from xtract output',
+                  epilog='')
+
+# Compulsory arguments:
+parser.add_argument("-xtract_folder", metavar='<folder>', help="Path to xtract folder", required=True)
+parser.add_argument("-ptx_folder", metavar='<list>', help="the ptx_folder(s)- if >1, comma separated", required=True)
+parser.add_argument("-seed_path", metavar='<list>', help="the seed mask(s) - if >1, comma separated", required=True)
+parser.add_argument("-tracts", metavar='<list>', help="Comma separated list of tracts to include", required=True)
+parser.add_argument("-roi_path", metavar='<list>', help="using the medial wall as a mask(s)? - if >1, comma separated")
+parser.add_argument("-savetxt", action="store_true", default=False, help="save as txt?")
+# parser.add_argument("-distnorm", action="store_true", default=False, help="distance normalisation?")
+parser.add_argument("-prefix", metavar='<string>', help="prefix for filename")
+argsa = parser.parse_args()
 
 ######################
 ####### Some preparation stuff
 ######################
+CIFTI_STRUCTURES = ['CEREBELLUM', 'ACCUMBENS_LEFT', 'ACCUMBENS_RIGHT', 'AMYGDALA_LEFT', 'AMYGDALA_RIGHT',
+                    'BRAIN_STEM', 'CAUDATE_LEFT', 'CAUDATE_RIGHT', 'CEREBELLUM_LEFT', 'CEREBELLUM_RIGHT',
+                    'DIENCEPHALON_VENTRAL_LEFT', 'DIENCEPHALON_VENTRAL_RIGHT', 'HIPPOCAMPUS_LEFT',
+                    'HIPPOCAMPUS_RIGHT', 'OTHER', 'OTHER_GREY_MATTER', 'PALLIDUM_LEFT', 'PALLIDUM_RIGHT',
+                    'PUTAMEN_LEFT', 'PUTAMEN_RIGHT', 'THALAMUS_LEFT', 'THALAMUS_RIGHT']
+
 # split the arguments here
-ptx_folder=ptx_folder.split(",")
-seed_path=seed_path.split(",")
-tracts=tracts.split(",")
-if prefix != "x":
-    prefix=f'{prefix}_'
-else:
-    prefix=''
+xtract_folder = argsa.xtract_folder
+ptx_folder = argsa.ptx_folder.split(",")
+seed_path = argsa.seed_path.split(",")
+tracts = argsa.tracts.split(",")
+
+if argsa.prefix is None:
+    prefix = ''
 
 # determine if volume or surface seed: if volume, force savetxt
 # 0 is surface, 1 is volume, 2 is surface plus subcortical
@@ -51,26 +77,25 @@ if seed_type == 0:
     if len(ptx_folder) == 2:
         print('Building whole-brain connectivity blueprint')
     elif len(ptx_folder) == 3:
-        print('Building whole-brain plus subcortical connectivity blueprint')
         seed_type = 2
         seed_geom = "vertices+voxels"
+        subseed_voxnum_list = np.loadtxt(os.path.join(ptx_folder[2],'NumSeeds_of_ROIs'), dtype='int', ndmin=1).astype(int)
+        print(f'Building whole-brain plus subcortical connectivity blueprint with {len(subseed_voxnum_list)} subcortical structure(s)')
     else:
         print('Building single hemisphere connectivity blueprint')
 else:
     print('Building connectivity blueprint using volume seed')
 
-print('')
-print('')
-
 ######################
 ####### Load and prepare data
 ######################
 # mask and lut are equal across hemispheres, so only need 1
-maskfile = os.path.join(ptx_folder[0],'lookup_tractspace_fdt_matrix2')
+maskfile = os.path.join(ptx_folder[0], 'lookup_tractspace_fdt_matrix2')
 mask     = Image(maskfile)
-lut      = Image(os.path.join(ptx_folder[0],'lookup_tractspace_fdt_matrix2.nii.gz'))
+lut      = Image(os.path.join(ptx_folder[0], 'lookup_tractspace_fdt_matrix2.nii.gz'))
 lut      = lut.data[mask.data>0]-1
 
+out_folder = os.path.dirname(os.path.dirname(ptx_folder[0]))
 
 # Get num voxels in mask and num tracts
 nvoxels = np.sum(mask.data>0)
@@ -78,11 +103,11 @@ ntracts = len(tracts)
 
 print(f'Generating blueprint with {ntracts} tracts')
 # Collect tracts
-tracts_mat = np.zeros( (nvoxels, ntracts) )
+tracts_mat = np.zeros((nvoxels, ntracts))
 print('Reading tracts...')
 trm=[]
 for idx,t in enumerate(tracts):
-    t = os.path.join(xtract_folder,f'{t}.nii.gz')
+    t = os.path.join(xtract_folder, f'{t}.nii.gz')
     if os.path.exists(t):
         tract = Image(t)
         tracts_mat[lut,idx] = tract[mask.data>0]
@@ -94,6 +119,7 @@ for idx,t in enumerate(tracts):
 tracts_mat = np.delete(tracts_mat, [trm], 1)
 for i in trm:
     tracts.pop(i)
+ntracts = len(tracts)
 
 def normalise(M):
     D       = np.sum(M,axis=1)
@@ -103,7 +129,7 @@ def normalise(M):
 
 def load_fdt(fdt_path, norm=True):
     print('Reading tractography matrix. This may take a few minutes...')
-    mat         = np.loadtxt(fdt_path)
+    mat         = pd.read_csv(fdt_path, header=None, dtype={0:np.int32, 1:np.int32, 2:np.float32}, delim_whitespace=True).to_numpy()
     data        = mat[:-1, -1]
     rows        = np.array(mat[:-1, 0]-1, dtype=int)
     cols        = np.array(mat[:-1, 1]-1, dtype=int)
@@ -116,15 +142,21 @@ def load_fdt(fdt_path, norm=True):
 # Open matrix2 file
 M = []
 for p in ptx_folder:
-        M.append(load_fdt(os.path.join(p, "fdt_matrix2.dot")))
+    if os.path.exists(os.path.join(p, "fdt_matrix2.dot.gz")):
+        foo = subprocess.run(['gunzip', os.path.join(p, "fdt_matrix2.dot.gz")])
+    M.append(load_fdt(os.path.join(p, "fdt_matrix2.dot")))
+    foo = subprocess.run(['gzip', os.path.join(p, "fdt_matrix2.dot"), "--fast"])
 
 if len(ptx_folder) == 2:
     print('Stacking hemispheres...')
+    Mdims = [M[0].shape[0], M[1].shape[0]]
     M = np.concatenate((M[0], M[1]))
 elif len(ptx_folder) == 3:
     print('Stacking hemispheres and subcortical...')
+    Mdims = [M[0].shape[0], M[1].shape[0], M[2].shape[0]]
     M = np.concatenate((M[0], M[1], M[2]))
 else:
+    Mdims = M[0].shape[0]
     M = M[0]
 
 print(f'Tractography matrix dimensions: {M.shape[0]} {seed_geom}, {M.shape[1]} voxels')
@@ -139,7 +171,6 @@ BP = normalise(BP)
 ######################
 ####### Save blueprint
 ######################
-out_folder = os.path.dirname(os.path.dirname(ptx_folder[0]))
 # function to find which hemisphere/cifti structure we're working with
 def get_structure(p):
     f = open(p, 'r')
@@ -156,8 +187,8 @@ if seed_type == 0:
         temp = nib.load(p).darrays[0].data != 0
         seed.append(temp[:,0])
     # Convert to full cortex structure here (i.e. add in empty medial wall)
-    if roi_path != "x":
-        roi_path=roi_path.split(",")
+    if argsa.roi_path is not None:
+        roi_path = argsa.roi_path.split(",")
         roi = []
         for p in roi_path:
             temp = nib.load(p).darrays[0].data
@@ -181,7 +212,7 @@ if seed_type == 0:
         full_BP[roi == 1, :] = BP
         BP = full_BP
 
-    if savetxt == 1:
+    if argsa.savetxt:
         if len(ptx_folder) == 1:
             cstruct = get_structure(seed_path[0])
             if cstruct == 'Left':
@@ -226,7 +257,7 @@ elif seed_type == 1:
     np.savetxt(new_fname_tord, tracts, fmt="%s")
 
     # if savetxt save blueprint as txt
-    if savetxt == 1:
+    if argsa.savetxt == 1:
         new_fname = os.path.join(out_folder, f'{prefix}BP.LR.txt')
         np.savetxt(new_fname, BP)
     else:
@@ -254,9 +285,10 @@ elif seed_type == 2:
     for p in seed_path[0:2]:
         temp = nib.load(p).darrays[0].data != 0
         seed.append(temp[:,0])
+
     # Convert to full cortex structure here (i.e. add in empty medial wall)
-    if roi_path != "x":
-        roi_path=roi_path.split(",")
+    if argsa.roi_path is not None:
+        roi_path = argsa.roi_path.split(",")
         roi = []
         for p in roi_path:
             temp = nib.load(p).darrays[0].data
@@ -265,22 +297,17 @@ elif seed_type == 2:
                 print('Binarising...')
                 temp = (temp > 0)*1
             roi.append(temp)
-        # and stack
+        
         roi = np.concatenate((roi[0],roi[1]))
-
         # and append the subcortical seed
-        subimg = nib.load(seed_path[2])
-        p = subimg.get_fdata()
-        nsubvox = p[p>0].shape[0]
+        nsubvox = np.sum(subseed_voxnum_list)
         roi = np.concatenate((roi, np.ones([nsubvox,])))
-
         # and stack
         seed_temp = np.concatenate((seed[0], seed[1], np.ones([nsubvox,], dtype=bool)))
         full_BP = np.zeros([np.shape(seed_temp)[0], np.shape(BP)[1]])
         full_BP[roi == 1, :] = BP
         BP = full_BP
-
-    if savetxt == 1:
+    if argsa.savetxt:
         new_fname = os.path.join(out_folder, f'{prefix}BP.LR.txt')
         np.savetxt(new_fname, BP)
         new_fname_tord = os.path.join(out_folder, f'{prefix}tract_order.LR.txt')
@@ -289,18 +316,29 @@ elif seed_type == 2:
         # set up cifti brain model axes
         bm_l      = cifti2_axes.BrainModelAxis.from_mask(seed[0], name=f'CortexLeft')
         bm_r      = cifti2_axes.BrainModelAxis.from_mask(seed[1], name=f'CortexRight')
-        subcort   = cifti2_axes.BrainModelAxis.from_mask(p, name=f'OTHER_GREY_MATTER', affine=subimg.affine)
-        coords = np.loadtxt(os.path.join(ptx_folder[2], 'coords_for_fdt_matrix2'), dtype='int')
-        subcort.voxel = coords[:,:3]
-        bm        = bm_l + bm_r + subcort
-        new_fname = os.path.join(out_folder, f'{prefix}BP.LR.dscalar.nii')
-
+        bm        = bm_l + bm_r
+        coords = np.loadtxt(os.path.join(ptx_folder[2], 'coords_for_fdt_matrix2'), dtype='int', ndmin=1)
+        ref_img = nib.load(np.loadtxt(seed_path[2], dtype="str", ndmin=1)[0])
+        start_idx = 0
+        for struct, nvox in zip(np.loadtxt(seed_path[2], dtype="str", ndmin=1), subseed_voxnum_list):
+            struct_name = struct.split('CIFTI_STRUCTURE_')[1].replace('.nii.gz', '').replace('.nii', '')
+            struct_name = struct_name.upper()
+            if struct_name not in CIFTI_STRUCTURES:
+                struct_name = 'OTHER'
+            bm += nib.cifti2.BrainModelAxis(
+                name=struct_name,
+                voxel=coords[start_idx : start_idx + nvox, :3],
+                affine=ref_img.affine,
+                volume_shape=ref_img.shape,
+            )
+            start_idx += nvox
         # save cifti
+        new_fname = os.path.join(out_folder, f'{prefix}BP.LR.dscalar.nii')
         sc        = cifti2_axes.ScalarAxis(tracts)
         hdr       = cifti2.Cifti2Header.from_axes((sc, bm))
         img       = cifti2.Cifti2Image(BP.T, hdr)
         nib.save(img, new_fname)
 
-
 print(f'Saved: {new_fname}')
 print('')
+quit()

@@ -1,272 +1,200 @@
-#!/bin/bash
+#!/usr/bin/env fslpython
 
-# Written by Shaun Warrington
+import sys,os,glob,subprocess,shutil,tempfile
+import pandas as pd
+import numpy as np
+import nibabel as nib
+import argparse, textwrap
 
-Usage() {
-    cat << EOF
+FSLDIR = os.getenv('FSLDIR')
+FSLbin = os.path.join(FSLDIR, 'bin')
 
-Usage:
-    xtract_stats -d <dir_basename> -xtract <XTRACT_dir> -w <xtract2diff> [options]
+# some useful functions
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
 
-    Compulsory arguments:
+def imgtest(fname):
+    r = subprocess.run([f'{os.path.join(FSLbin, "imtest")} {fname}'], capture_output=True, text=True, shell=True)
+    return int(r.stdout)
 
-       -d <folder_basename>                   Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)
-       -xtract <folder>                       Path to XTRACT output folder
-       -w <xtract2diff>                       EITHER XTRACT results to diffusion space transform OR 'native' if tracts are already in diffusion space
+def applywarp(fin, out, ref, warp):
+    r = subprocess.run([os.path.join(FSLbin, "applywarp"), '-i', fin, '-o', out, '-r', ref, '-w', warp, '-d', 'float', '--interp=spline'])
 
-    Optional arguments:
-       -r <reference>                         If not 'native', provide reference image in diffusion space (e.g. /home/DTI/dti_FA)
-       -out <path>                            Output filepath (Default <XTRACT_dir>/stats.csv)
-       -str <file>                            Structures file (as in XTRACT) (Default is all tracts under <XTRACT_dir>)
-       -thr <float>                           Threshold applied to tract probability map (default = 0.001 = 0.1%)
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
 
-       -meas <list>                           Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)
-                                              vol = tract volume, prob = tract probability, length = tract length
-                                              Additional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
 
-       -keepfiles                             Keep temporary files
 
-EOF
-    exit 1
-}
-
-Splash (){
-
-cat <<EOF
-
+splash = """
 __  _______ ____      _    ____ _____    _        _
 \ \/ /_   _|  _ \    / \  / ___|_   _|__| |_ __ _| |_ ___
  \  /  | | | |_) |  / _ \| |     | |/ __| __/ _  | __/ __|
  /  \  | | |  _ <  / ___ \ |___  | |\__ \ || (_| | |_\__ \\
 /_/\_\ |_| |_| \_\/_/   \_\____| |_||___/\__\__ _|\__|___/
 
-EOF
+ """
+print(splash)
 
-}
+parser = MyParser(prog='XTRACT Stats',
+                  description='xtract_stats: summary tract-wise measures',
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract_stats -xtract /data/xtract -d /data/Diffusion/dti_ -warp std2diff.nii.gz
+                                         '''))
 
-Splash
+# Compulsory arguments:
+parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
+parser.add_argument("-d", metavar='<folder_basename>', help="Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)", required=True)
 
-[ "$1" = "" ] && Usage
+# Optional arguments:
+parser.add_argument("-warp", metavar='<nifti>', nargs=2, help="If tract are not in the same space as the data in '-d', provide the reference image in diffusion space (e.g. /home/DTI/dti_FA) and the xtract space to reference space warp field")
+parser.add_argument("-out", metavar='<path>', help="Output filepath (Default <XTRACT_dir>/stats.csv)")
+parser.add_argument("-meas", metavar='<list>', default='vol,prob,length,FA,MD', help="Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)\nvol = tract volume, prob = tract probability, length = tract length\nAdditional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'")
+parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to tracts (default = 0.001).")
+argsa = parser.parse_args()
 
-# Set default options
-d=""
-ref=""
-xout=""
-str=""
-xtract2diff=""
-out=""
-thr=0.001
-nat=0
-keepfiles=0
-meas="vol,prob,length,FA,MD"
-
-# Parse command-line arguments
-while [ ! -z "$1" ];do
-    case "$1" in
-	-d) d=$2;shift;;
-  -xtract) xout=$2;shift;;
-	-w) xtract2diff=$2;shift;;
-  -r) ref=$2;shift;;
-  -str) str=$2;shift;;
-	-thr) thr=$2;shift;;
-  -out) out=$2;shift;;
-  -meas) meas=$2;shift;;
-  -keepfiles) keepfiles=1;shift;;
-
-	*) echo "Unknown option '$1'";exit 1;;
-    esac
-    shift
-done
+xtract = argsa.xtract
+thr = str(argsa.thr)
+meas_dir = argsa.d
+meas = argsa.meas.split(',')
 
 # Check compulsory arguments
-if [ "$xtract2diff" == "" ];then
-  echo "Must set compulsory argument '-w'"
-  echo "EITHER XTRACT results to diffusion space transform OR 'native' if tracts are in diffusion space"
-elif [ "$xtract2diff" == "native" ];then
-  nat=1
-  echo "Tracts are in diffusion space"
-else
-  if [ `$FSLDIR/bin/imtest $xtract2diff` -eq 0 ];then
-  echo "Image $xtract2diff not found."
-  exit 1
-  fi
-fi
-
-errflag=0
-if [ "$d" == "" ];then
-    echo "Must set compulsory argument '-d'"
+errflag = 0
+if os.path.isdir(xtract) is False:
+    print(f'xtract folder {xtract} not found')
     errflag=1
-elif [ ! -d `dirname "$d"` ];then
-    echo "Microstructure folder $d not found"
+if os.path.isdir(os.path.dirname(meas_dir)) is False:
+    print(f'Data folder {meas_dir} not found')
     errflag=1
-fi
-if [ $nat -eq 0 ];then
-  if [ "$ref" == "" ];then
-      echo "Native space option not selected. Must set argument '-r'"
-      exit 1
-  elif [ `$FSLDIR/bin/imtest $ref` -eq 0 ];then
-      echo "Reference image $ref not found"
-      errflag=1
-  fi
-fi
-if [ "$xout" == "" ];then
-    echo "Must set compulsory argument '-xtract'"
-    errflag=1
-elif [ ! -d $xout ];then
-    echo "XTRACT output folder $xout not found"
-    errflag=1
-fi
-if [ "$meas" == "" ];then
-    echo "You have used the '-meas' flag but have not provided any arguments"
-    errflag=1
-fi
-# Convert to array
-IFS=','; read -ra meas <<< "$meas"; IFS=' ';
-echo "Getting summary stats for: ${meas[@]}"
+errchk(errflag)
+    
+# check optional arguments
+if argsa.warp is not None:
+    ref = argsa.warp[0]
+    warp = argsa.warp[1]
+    if imgtest(ref) == 0:
+        print(f'Reference image {ref} not found.')
+        errflag=1
+    if imgtest(warp) == 0:
+        print(f'Warp field {warp} not found.')
+        errflag=1
+else:
+    warp = 'native'
+errchk(errflag)
+
+if argsa.out == None:
+    out = os.path.join(xtract, 'stats.csv')
+else:
+    out = argsa.out
+
+if os.path.isfile(out) is True:
+    print('Warning: Output file already exsits. Will be overwritten.')
+
+# get tract list
+if argsa.tract_list is not None:
+    tracts = argsa.tract_list.split(',')
+else:
+    print('Getting stats for all tracts under "-xtract"')
+    tracts = glob.glob(os.path.join(xtract, 'tracts', '*', 'densityNorm.nii.gz'))
+    tracts = [os.path.basename(os.path.dirname(t)) for t in tracts]
+
+# report tracts and measures being included
+print(f'Tracts: {tracts}')
+print(f'\nGetting summary stats for: {meas}')
+
+# Location of temp folder for warped tracts
+temp_dir = tempfile.TemporaryDirectory()
+
+# expand meas_list to contain mean, median, standard deviation
+# for 'vol' volume, only get -V
+# for 'length' and 'prob' get mean, median and std
+# for all other measures get mean, median and std and the probability-weighted stats
+meas_hdr = []
+for m in meas:
+    if m == 'vol':
+        # just get tract volume
+        meas_hdr.append('volume')
+    elif m in ['prob', 'length']:
+        # get mean, median and std
+        meas_hdr.append(f'{m}_mean')
+        meas_hdr.append(f'{m}_median')
+        meas_hdr.append(f'{m}_std')
+    else:
+        # get mean, median and std from binary mask and weighted by tract probability
+        meas_hdr.append(f'{m}_mean')
+        meas_hdr.append(f'{m}_median')
+        meas_hdr.append(f'{m}_std')
+        meas_hdr.append(f'{m}_WP_mean')
+        meas_hdr.append(f'{m}_WP_median')
+        meas_hdr.append(f'{m}_WP_std')
 
 
-# Check for images
-for t in "${meas[@]}"; do
-  if [ "${t}" == "vol" ] || [ "${t}" == "prob" ] || [ "${t}" == "length" ]; then
-    # do nothing
-    foo=0
-  else
-    # check for file
-    if [ `$FSLDIR/bin/imtest ${d}${t}` -eq 0 ];then
-      echo "Microstructure image file ${d}${t} not found"
-      echo "Exiting now..."
-      exit 1
-    fi
-  fi
-done
+stats = pd.DataFrame(index=tracts, columns=meas_hdr)
+print('\nProcessing...')
+for t in tracts:
+    print(f'\n{t}: ', end="", flush=True)
+    tpath = os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz')
+    tlengthpath = os.path.join(xtract, 'tracts', t, 'density_lengths.nii.gz')
+    # deal with warping
+    if warp != 'native':
+        print(f'warping... ', end="", flush=True)
+        tpath = os.path.join(temp_dir.name, 'densityNorm_diffspace.nii.gz')
+        applywarp(os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz'), tpath, ref, warp)
+        # only warp tract_lengths if using it
+        if 'length' in meas:
+            tlengthpath = os.path.join(temp_dir.name, 'density_lengths_diffspace.nii.gz')
+            applywarp(os.path.join(xtract, 'tracts', t, 'density_lengths.nii.gz'), tlengthpath, ref, warp)
+    # binarise prob map
+    tbinpath = tpath.replace('.nii.gz', '_bin.nii.gz')
+    cmout = subprocess.run([os.path.join(FSLbin, "fslmaths"), tpath, '-thr', thr, '-bin', tbinpath])
+    # get stats
+    for m in meas:
+        print(f'{m} ', end="", flush=True)
+        if m == 'vol':
+            # tract volume (mm)
+            cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), tpath, '-l', thr, '-V'], capture_output=True, text=True)
+            stats.at[t, 'volume'] =  float(cmout.stdout.split(' ')[1])
+        elif m == 'prob':
+            # median, mean, and standard deviation of probability
+            cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), tpath, '-l', thr, '-M', '-P', '50', '-S'], capture_output=True, text=True)
+            # cmout.stdout.split: 0 is mean, 1 is median, 2 is std
+            stats.at[t, 'prob_mean'] =  cmout.stdout.split(' ')[0]
+            stats.at[t, 'prob_median'] =  cmout.stdout.split(' ')[1]
+            stats.at[t, 'prob_std'] =  cmout.stdout.split(' ')[2]
+        elif m == 'length':
+            # median, mean, and standard deviation of tract lengths
+            cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), tlengthpath, '-l', thr, '-M', '-P', '50', '-S'], capture_output=True, text=True)
+            stats.at[t, 'length_mean'] =  cmout.stdout.split(' ')[0]
+            stats.at[t, 'length_median'] =  cmout.stdout.split(' ')[1]
+            stats.at[t, 'length_std'] =  cmout.stdout.split(' ')[2]
+        else:
+            mpath = meas_dir + m
+            # get mean, median and std from binary mask
+            cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), mpath, '-k', tbinpath, '-M', '-P', '50', '-S'], capture_output=True, text=True)
+            stats.at[t, f'{m}_mean'] =  cmout.stdout.split(' ')[0]
+            stats.at[t, f'{m}_median'] =  cmout.stdout.split(' ')[1]
+            stats.at[t, f'{m}_std'] =  cmout.stdout.split(' ')[2]
+            # get mean, median and std from binary mask weighted by tract probability
+            mpath_temp = os.path.join(temp_dir.name, f'{m}_{t}')
+            cmout = subprocess.run([os.path.join(FSLbin, "fslmaths"), mpath, '-mul', tpath, mpath_temp])
+            cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), mpath_temp, '-k', tbinpath, '-M', '-P', '50', '-S'], capture_output=True, text=True)
+            stats.at[t, f'{m}_WP_mean'] =  cmout.stdout.split(' ')[0]
+            stats.at[t, f'{m}_WP_median'] =  cmout.stdout.split(' ')[1]
+            stats.at[t, f'{m}_WP_std'] =  cmout.stdout.split(' ')[2]
+  
 
-# Check structure list
-# Location of temp folder
-tmpdir=`mktemp -d`
+# save output
+stats.to_csv(out, index_label='tract')
+print(f'\nOutput saved to {out}')
 
-if [ "$str" == "" ];then
-  echo "Running for all tracts under ${xout}/tracts"
-  str=${tmpdir}/temp_struct
-  rm -rf $str
-  for struc in `ls -l ${xout}/tracts | egrep '^d' | awk '{print $NF}'`;do
-    echo "$struc" >> $str
-  done
-fi
-if [ ! -f $str ];then
-  echo "Structures files $str not found"
-  errflag=1
-fi
-
-# Set output path
-if [ "$out" == "" ];then
-   out=${xout}/stats.csv
-elif [ ! "${out: -4}" == ".csv" ];then
-   out=${out}.csv
-fi
-
-if [ "$errflag" -eq 1 ];then
-    echo ""
-    echo "Exit without doing anything.."
-    exit 1
-fi
-
-echo ""
-
-# Make CSV header row
-hdr="tract"
-for t in "${meas[@]}"; do
-  if [ "${t}" == "vol" ]; then
-    t="${t} (mm3)";
-  else
-    if [ "${t}" == "length" ]; then t="${t} (mm)"; fi
-    if [ "${t}" == "MD" ]; then t="${t} (mm2.s-1)"; fi
-    t="median_${t}, mean_${t}, stddev_${t}"
-  fi
-  hdr="${hdr}, ${t}"
-done
-
-rm -rf $out
-echo "${hdr}" > $out
-
-while read structstring; do
-  struct=`echo $structstring | awk '{print $1}'`
-  # skip empty lines and lines that start with '#'
-  if [ "${struct:0:1}" == "#" ];then
-	# do nothing
-	foo=0
-	#echo "----- Skip line $structstring -----"
-  elif [ "$struct" == "" ];then
-	# do nothing
-	foo=0
-	#echo "----- Skip empty line -----"
-  else
-
-  # dealing with warping
-  tract=${xout}/tracts/${struct}/densityNorm
-  tract_length=${xout}/tracts/${struct}/density_lengths
-  if [ `$FSLDIR/bin/imtest $tract` -eq 0 ];then
-  echo "Couldn't find images for $struct - skipping.."
-  else
-  echo "Processing $struct"
-  if [ $nat -eq 0 ];then
-    tract=${tmpdir}/densityNorm_diffspace
-    ${FSLDIR}/bin/applywarp -i ${xout}/tracts/${struct}/densityNorm -w $xtract2diff -r $ref -o $tract --interp=spline
-
-    tract_length=${tmpdir}/density_lengths_diffspace
-    # only warp if actually using tract lengths
-    if [[ "${meas[@]}" =~ "length" ]];then
-      tract_length=${tmpdir}/density_lengths_diffspace
-      ${FSLDIR}/bin/applywarp -i ${xout}/tracts/${struct}/density_lengths -w $xtract2diff -r $ref -o $tract_length --interp=spline
-    fi
-  fi
-
-  # binarise prob map
-  ${FSLDIR}/bin/fslmaths $tract -thr $thr -bin ${tract}_bin
-
-  stats_out=()
-  for t in "${meas[@]}"; do
-    if [ "${t}" == "vol" ]; then
-      # tract volume
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats $tract -l $thr -V | awk '{print $2}'`)
-    elif [ "${t}" == "prob" ]; then
-      # median and mean probability (and standard deviation)
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats $tract -l $thr -P 50 -M`)
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats $tract -l $thr -S`)
-    elif [ "${t}" == "length" ]; then
-      # median and mean path length (and standard deviation)
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats $tract_length -k ${tract}_bin -P 50 -M`)
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats $tract_length -k ${tract}_bin -S`)
-    else
-      # median and mean microstructure measure (and standard deviations)
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats ${d}${t} -k ${tract}_bin -P 50 -M`)
-      stats_out=(${stats_out[@]} `${FSLDIR}/bin/fslstats ${d}${t} -k ${tract}_bin -S`)
-    fi
-  done
-
-  # convert array to CSV format and output
-  stats_out=$( IFS=$','; echo "${stats_out[*]}" )
-  echo "$struct, ${stats_out}" >> $out
-
-  # clean-up
-  if [ $keepfiles -eq 0 ];then
-    if [ $nat -eq 0 ];then
-      rm ${tract}.nii.gz ${tract}_bin.nii.gz
-      if [[ "${meas[@]}" =~ "length" ]];then rm ${tract_length}.nii.gz; fi
-    else
-      rm ${tract}_bin.nii.gz
-    fi
-  else
-    if [ $nat -eq 0 ];then
-      cp ${tract}.nii.gz ${xout}/tracts/${struct}/densityNorm_diffspace_bin.nii.gz
-      cp ${tract}_bin.nii.gz ${xout}/tracts/${struct}/densityNorm_diffspace_bin.nii.gz
-      if [[ "${meas[@]}" =~ "length" ]];then cp ${tract_length}.nii.gz ${xout}/tracts/${struct}/density_lengths_diffspace.nii.gz; fi
-    else
-      cp ${tract}_bin.nii.gz ${xout}/tracts/${struct}/densityNorm_bin.nii.gz
-    fi
-  fi
-
-  fi
-  fi
-done < $str
-rm -rf $tmpdir
-#EOF
+temp_dir.cleanup()
+quit()

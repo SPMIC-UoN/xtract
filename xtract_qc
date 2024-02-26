@@ -1,211 +1,363 @@
-#!/bin/bash
+#!/usr/bin/env fslpython
 
-#   Copyright (C) 2020 University of Oxford
-#
-#   SHCOPYRIGHT
+import sys,os,glob,subprocess,shutil
+import argparse, textwrap
 
-# Written by Shaun Warrington
+import numpy as np
+import pandas as pd
 
-shopt -s extglob
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+rcParams['axes.spines.top'] = False
+rcParams['axes.spines.right'] = False
 
-code_folder="$FSLDIR/bin"
-temp_loc="$FSLDIR/data/xtract_data"
+import jinja2
+import seaborn as sns
+import plotly
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from datetime import datetime
 
-Splash (){
-cat <<EOF
+FSLDIR = os.getenv('FSLDIR')
+FSLbin = os.path.join(FSLDIR, 'bin')
+datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
+# some useful functions
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
+
+def imgtest(fname):
+    r = subprocess.run([f'{os.path.join(FSLbin, "imtest")} {fname}'], capture_output=True, text=True, shell=True)
+    return int(r.stdout)
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+
+splash = """
 __  _______ ____      _    ____ _____ ___   ____
 \ \/ /_   _|  _ \    / \  / ___|_   _/ _ \ / ___|
  \  /  | | | |_) |  / _ \| |     | || | | | |
  /  \  | | |  _ <  / ___ \ |___  | || |_| | |___
 /_/\_\ |_| |_| \_\/_/   \_\____| |_| \__\_\\____|
 
+ """
+print(splash)
 
-EOF
-}
-Splash
+parser = MyParser(prog='XTRACT QC',
+                  description='xtract_qc: quality control at the group-level',
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example usage:
+                        xtract_qc -subject_list sublist.txt -out /data/xtract_qc
+                                         '''))
 
+# Compulsory arguments:
+parser.add_argument("-subject_list", metavar='<txt>', help="Text file containing line separated subject-wise paths to XTRACT folders", required=True)
+parser.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
 
-Usage() {
-    cat << EOF
+# Optional arguments:
+parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts for volume calculation (default = 0.001).")
+parser.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
+parser.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
+argsa = parser.parse_args()
 
-Usage:
-    xtract_qc -subject_list <list.txt> -out <out_folder> [options]
-
-    Compulsory arguments:
-       -subject_list    <txt>                      Text file containing line separated subject-wise paths to XTRACT folders
-       -out             <folder>                   Path to output folder
-
-    Optional arguments:
-       -tract_list      <list>                     Comma separated list of tracts to include (default = the XTRACT 'HUMAN' structureList )
-       -thr             <float>                    Threshold applied to XTRACT tracts for volume calculation (default = 0.001, i.e. 0.1% probability).
-       -n_std           <float>                    The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).
-       -use_prior                                  If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)
-EOF
-    exit 1
-}
-
-[ "$1" = "" ] && Usage
-
-# Set default options
-out=""
-subject_list=""
-tract_list=""
-thr=0.001
-n_std=2
-use_prior=0
-
-# Parse command-line arguments
-while [ ! -z "$1" ];do
-    case "$1" in
-	-out) out=$2;shift;;
-	-subject_list) subject_list=$2;shift;;
-  -tract_list) tract_list=$2;shift;;
-  -thr) thr=$2;shift;;
-  -n_std) n_std=$2;shift;;
-  -use_prior) use_prior=1;;
-	*) echo "Unknown option '$1'";exit 1;;
-    esac
-    shift
-done
+subject_list = argsa.subject_list
+out = argsa.out
+thr = argsa.thr
+n_std = argsa.n_std
 
 # Step 0 : Prepare
 # Check compulsory arguments
 errflag=0
-if [ "$subject_list" == "" ];then
-    echo "Must set compulsory argument '-subject_list'"
+if os.path.isfile(subject_list) is False:
+    print(f'Subject list file {subject_list} not found')
     errflag=1
-elif [ ! -f $subject_list ];then
-    echo "Subject list file $subject_list not found"
+if os.path.isdir(out):
+    print('Warning: Output folder already exists. Some of the files may be overwritten')
+
+# check optional arguments
+if thr == 0:
+    print('Tract threshold (-thr) has been set to 0. Must be greater than 0. Default is 0.001')
     errflag=1
-fi
-if [ "$out" == "" ];then
-    echo "Must set compulsory argument '-out'"
+if n_std == 0:
+    print('Number of standard deviations (-n_std) has been set to 0. Must be greater than 0. Default is 2')
     errflag=1
-fi
+errchk(errflag)
 
-if (( $(echo "$thr == 0" | bc -l) ));then
-    echo "Tract threshold has been set to 0. Must be greater than 0. Default is 0.001"
-    errflag=1
-fi
 
-if (( $(echo "$n_std == 0" | bc -l) ));then
-    echo "Number of standard deviations ('-n_std') has been set to 0. Must be greater than 0. Default is 2"
-    errflag=1
-fi
+os.makedirs(out, exist_ok=True)
 
-if [ "$errflag" -eq 1 ];then
-    echo ""
-    echo "Exit without doing anything..."
-    exit 1
-fi
 
-if [ -d $out ];then
-    echo "Warning: Output folder already exists. Some of the files may be overwritten"
-fi
-mkdir -p $out
+# get subject information
+subject_list = np.loadtxt(subject_list, dtype='str')
 
-# Get tract list here
-function join_str { local IFS="$1"; shift; echo "$*"; }
-if [ "$tract_list" == "" ]; then
-    # if not supplied, get tracts from HUMAN structureList
-    unset tracts
-    while read structstring; do
-      t=`echo $structstring | awk '{print $1}'`
-      if [ "${t:0:1}" == "#" ];then
-      foo=0
-      elif [ "$t" == "" ];then
-      foo=0
-      else
-      tracts+=($t)
-      fi
-    done < $FSLDIR/data/xtract_data/Human/structureList
-    # also build comma separated tract_list for python usage later
-    tract_list=`join_str , ${tracts[@]}`
-else
-    tracts=(`echo $tract_list | sed s@","@" "@g`)
-fi
+# get tract information
+if argsa.tract_list is not None:
+    tracts = argsa.tract_list.split(',')
+else:
+    tracts = []
+    with open(os.path.join(datadir, 'HUMAN', 'structureList')) as f:
+        for line in f:
+            struct = line.strip()
+            if struct and not struct.startswith("#"):
+                tracts.append(struct.split()[0])
 
-# function to get metrics for each tract
-get_metrics(){
-    tracts=$1
-    sub=$2
-    thr=$3
+# dimensions of cohort
+nsubs = len(subject_list)
+ntracts = len(tracts)
 
-    sub_out=${sub}/xtract_qc
-    fc_out=${sub_out}/filecheck # does the file exist?
-    wt_out=${sub_out}/waytotal # what is the waytotal?
-    vol_out=${sub_out}/volume # tract volumes
+# function to get metrics
+def get_metrics(sub_path, sub_out, tracts, thr):
+    ntracts = len(tracts)
+    filecheck, tract_waytotal, tract_volume = np.ones((ntracts,)), np.ones((ntracts,)), np.ones((ntracts,))
+    for nt, tract in enumerate(tracts):
+        tfile = os.path.join(sub_path, 'tracts', tract, 'densityNorm.nii.gz')
+        wayfile = os.path.join(sub_path, 'tracts', tract, 'waytotal')
+        # filecheck
+        if imgtest(tfile) is False:
+            filecheck[nt] = 0
+        # if it does exist, get volume
+        else:
+            # if so, get tract volume
+            tvol = subprocess.run([os.path.join(FSLbin, 'fslstats'), tfile, '-l', str(thr), '-V'], capture_output=True, text=True)
+            tvol = str(tvol.stdout).split(' ')[1]
+            tract_volume[nt] = float(tvol)
+        # get waytotal
+        if os.path.isfile(wayfile) is False:
+            tract_waytotal[nt] = np.nan
+        else:
+            tract_waytotal[nt] = np.loadtxt(wayfile, dtype=int)    
+    # save check to subject directory
+    np.savetxt(os.path.join(sub_out, 'filecheck'), filecheck, fmt='%i')
+    np.savetxt(os.path.join(sub_out, 'waytotal'), tract_waytotal, fmt='%i')
+    np.savetxt(os.path.join(sub_out, 'volume'), tract_volume, fmt='%i')
+    return filecheck, tract_waytotal, tract_volume
 
-    for t in ${tracts[@]}; do
-      # check output file exists
-        if [ -f ${sub}/tracts/${t}/densityNorm.nii.gz ]; then
-            echo "${t} 1" >> ${fc_out}
-            # if it does exist, get waytotal...
-            echo "${t} `cat ${sub}/tracts/${t}/waytotal`" >> ${wt_out}
-            # ... and tract volume
-            echo "${t} `fslstats ${sub}/tracts/${t}/densityNorm.nii.gz -l $thr -V | awk '{print $1}'`" >> ${vol_out}
-        else
-          # else report 0s for file_exist, waytotal and volume
-            echo "${t} 0" >> ${fc_out}
-            echo "${t} 0" >> ${wt_out}
-            echo "${t} 0" >> ${vol_out}
-        fi
-      done
-}
+# filecheck, waytotal and tract volume arrays
+subcheck, filecheck_all, tract_waytotal_all, tract_volume_all = np.ones((nsubs,)), pd.DataFrame(index=np.arange(0, nsubs), columns=tracts), pd.DataFrame(index=np.arange(0, nsubs), columns=tracts), pd.DataFrame(index=np.arange(0, nsubs), columns=tracts)
 
-# loop through tracts and get:
-# "if tract has nifti", "waytotal" and "tract volume"
-# start building QC metric files
-COUNTER=1
-nsubs=`cat ${subject_list} | wc -l`
-echo "Generating subject QC metrics..."
-missing_list="${out}/missing_subjects.txt"
-rm -rf $missing_list
-for sub in `cat ${subject_list}`; do
-    # update progress bar
-    echo -ne "\r     $COUNTER of $nsubs"
+# loop through subjects and tracts
+# if using prior run, check if output files already exist
+# if it does, do nothing and move on
+# if it doesn't exist, get metrics
+for ns, sub_path in enumerate(subject_list):
+    print(f'{ns+1} of {nsubs}', end="")
+    sub_out = os.path.join(sub_path, 'xtract_qc')
+    # check the subject directory exists
+    if os.path.isdir(sub_path) is False:
+        subcheck[ns] = 1
+        print(f' : {sub_path} missing', end="")
+    else:
+        if argsa.use_prior and os.path.isfile(os.path.join(sub_out, 'filecheck')) and os.path.isfile(os.path.join(sub_out, 'waytotal')) and os.path.isfile(os.path.join(sub_out, 'volume')):
+            filecheck_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'filecheck'))
+            tract_waytotal_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'waytotal'))
+            tract_volume_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'volume'))
+        else:
+            filecheck_all.loc[ns, :], tract_waytotal_all.loc[ns, :], tract_volume_all.loc[ns, :] = get_metrics(sub_path, sub_out, tracts, thr)
+    print("")
 
-    if [ ! -d ${sub} ]; then
-      echo ${sub} >> $missing_list
-    else
-      sub_out=${sub}/xtract_qc
-      fc_out=${sub_out}/filecheck # does the file exist?
-      wt_out=${sub_out}/waytotal # what is the waytotal?
-      vol_out=${sub_out}/volume # tract volumes
-      # if using prior run, check if output files already exist
-      # if it does, do nothing and move on
-      # if it doesn't exist, get maetrics
-      if [ $use_prior == 1 ];then
-        if [ ! -f $fc_out ] || [ ! -f $wt_out ] || [ ! -f $vol_out ]; then
-            get_metrics $tracts $sub $thr
-        else
-          foo=0 # do nothing - metrics already exist
-        fi
-      # else, just get the metrics, overwriting any previous run
-      elif [ $use_prior == 0 ];then
-        rm -rf ${sub_out}
-        mkdir -p ${sub_out}
-        get_metrics ${tracts} $sub $thr
-      fi
-    fi
-    COUNTER=$(( COUNTER + 1 ))
-done
-echo ""
-echo ""
+if np.sum(subcheck) < nsubs:
+    print(f'Could not find XTRACT folders for {int(np.sum(subcheck) - nsubs)} subject(s)')
+    missing_list = os.path.join(out, 'missing_subjects.txt')
+    np.savetxt(missing_list, subject_list[np.argwhere(subcheck == 0)], fmt="%s")
+    print(f'Excluding from QC\nSee {missing_list} for list')
 
-if [ ! -f $missing_list ];then
-    foo=0
-else
-    n_missing=`cat $missing_list | wc -l`
-    echo "Could not find XTRACT folders for ${n_missing} subject(s)"
-    echo "Excluding from QC"
-    echo "See $missing_list for list"
-    echo ""
-fi
 
-# launch python job to summarise QC results
-echo "Generating report..."
-$code_folder/report_xtract_qc.py ${subject_list} ${out} ${tract_list} ${n_std} ${missing_list} ${temp_loc}
-echo "Report generated:"
-echo "See ${out}/qc_report.html"
+print('Generating report...')
+##########################################
+# now report subject's missing results and give percent success for each tract and flag any subjects with all missing
+# working with filecheck metric
+sumcheck = np.sum(filecheck_all.values, axis=1)
+sub_missing = np.argwhere(sumcheck < ntracts) # subjects missing data
+
+sub_missing_txt = []
+sub_missing_all_txt = []
+for idx in sub_missing:
+    sub = subject_list[idx]
+    n_missing = int(ntracts - sumcheck[idx])
+    if n_missing < ntracts:
+        sub_missing_txt.append(f'{sub[0]} missing {n_missing} tracts')
+    elif n_missing == ntracts:
+        sub_missing_all_txt.append(f'{sub[0]} missing all tracts')
+
+# get overall success
+sumcheck_all = np.round((np.sum(sumcheck) / (ntracts * nsubs)) * 100, 3) # now overall percent success across subjects and tracts
+sumcheck_all_txt = f'{sumcheck_all}% ({int(np.sum(sumcheck))} of {int(ntracts * nsubs)})'
+tract_success = (np.sum(filecheck_all.values, axis=0)/nsubs) * 100 # percent of subjects successfully completed per tract
+
+# report simple filecheck metric
+ps_inc = 0
+if sumcheck_all < 100:
+    ps_inc = 1
+    tract_success = pd.DataFrame({'tracts': tracts, 'percent_successful':tract_success})
+    fig = px.line(tract_success, x=tracts, y="percent_successful",
+        labels=dict(tracts="Tract", percent_successful="Percent successful (%)", )
+        )
+    fig.add_shape(type="line", x0=0, y0=100, x1=ntracts, y1=100, line=dict(color="orange", dash="dash"))
+    fig.update_xaxes(title_text="Tract")
+    fig.write_html(os.path.join(out, 'percent_success_fig.html'))
+
+
+##########################################
+# make metric distribution plots
+def myround(x, base=5):
+    y = base * round(x/base)
+    if y < x:
+        y = y + base
+    return y
+
+def plot_tractwise_metric(metric, metric_name, n_std):
+    k = 4
+    m = int(myround(ntracts)/k)
+    fig, ax = plt.subplots(m, k, figsize=(16, m*1.75))
+    n = 0
+    for j in range(m):
+        for i in range(k):
+            if n < ntracts:
+                # plot distribution
+                x = metric.values[:,n]
+                sns.kdeplot(x, ax=ax[j,i], fill=False, color='crimson')
+                kdeline = ax[j,i].lines[0]
+                xs = kdeline.get_xdata()
+                ys = kdeline.get_ydata()
+                middle = x.mean()
+                median = np.median(x)
+                sdev = x.std()
+                left = middle - sdev
+                right = middle + sdev
+                ax[j,i].vlines(middle, 0, np.interp(middle, xs, ys), color='crimson', ls=':')
+                ax[j,i].vlines(median, 0, np.interp(median, xs, ys), color='crimson', ls='--')
+                ax[j,i].fill_between(xs, 0, ys, facecolor='crimson', alpha=0.5)
+                ax[j,i].fill_between(xs, 0, ys, where=(left <= xs) & (xs <= right), interpolate=True, facecolor='crimson', alpha=0.5)
+                # add markers for n_std standard deviations
+                left = middle - n_std*sdev
+                right = middle + n_std*sdev
+                ax[j,i].axvline(left, color='k', ls='--')
+                ax[j,i].axvline(right, color='k', ls='--')
+                # set axis options
+                ax[j,i].set_xlim(left=0)
+                ax[j,i].set_title(tracts[n], size=18, y=1.05)
+                ax[j,i].ticklabel_format(style='sci', scilimits=(0, 0))
+            else:
+                ax[j,i].axis('off')
+            n += 1
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, f'{metric_name}_fig.jpg'))
+    plt.close()
+
+plot_tractwise_metric(tract_waytotal_all, 'waytotal', n_std)
+plot_tractwise_metric(tract_volume_all, 'volume', n_std)
+
+
+##########################################
+# list of subjects with waytotal=0, but have tract files
+# these subjects are likely to have failed due to bad registration
+sub_ind_zerowt = np.argwhere((filecheck_all.values == 1) & (tract_waytotal_all.values == 0))[:,0]
+sub_ind_zerowt = np.unique(sub_ind_zerowt)
+
+sub_zerowt_txt = []
+for idx in sub_ind_zerowt:
+    sub = subject_list[idx]
+    nempty = np.where(tract_waytotal_all.values[idx,:] == 0)[0].shape[0]
+    sub_zerowt_txt.append(f'{sub} has empty tracts files for {nempty}')
+
+
+# find outliers based on waytotal and volume
+# add here a string of subjects where their volume/waytotal is >2*std away from mean
+def get_outliers(metric):
+    outliers = np.abs(metric-metric.mean()) >= (n_std*metric.std())
+    outliers = np.logical_and(outliers, (metric > 0)) # subject > n_std away from mean but not 0
+    outliers_summary = np.sum(outliers) # tract-wise outliers
+    extreme_outliers = np.sum(outliers, axis=1) # now getting subject with more than 0.5*ntracts
+    extreme_outliers = extreme_outliers >= np.rint(0.5*ntracts)
+    return outliers, outliers_summary, extreme_outliers
+
+# make outlier plots
+fig = make_subplots(rows=2, cols=1,
+    subplot_titles=('Waytotal',  'Volume'), shared_xaxes=True,
+    specs=[[{"secondary_y": True}], [{"secondary_y": True}]])
+
+# waytotal outlier plot
+wt_outliers, outliers_summary, wt_extreme_outliers = get_outliers(tract_waytotal_all)
+outliers_summary = pd.DataFrame({'tracts': tracts, 'no_outliers':outliers_summary.values, 'perc':np.round(100*outliers_summary.values/nsubs,2)})
+fig.add_trace(go.Scatter(x=outliers_summary['tracts'], y=outliers_summary['no_outliers'], name="Number", marker=dict(color='darkslategray')), row=1, col=1, secondary_y=False);
+
+fig.add_trace(go.Scatter(x=outliers_summary['tracts'], y=outliers_summary['perc'], name="Percent", marker=dict(color='darkslategray')), row=1, col=1, secondary_y=True);
+
+fig.update_layout(showlegend=False, hovermode="x unified");
+fig.update_yaxes(title_text="# potential outliers", secondary_y=False);
+fig.update_yaxes(title_text="% potential outliers", secondary_y=True);
+
+# volume outlier plot
+vol_outliers, outliers_summary, vol_extreme_outliers = get_outliers(tract_volume_all)
+outliers_summary = pd.DataFrame({'tracts': tracts, 'no_outliers':outliers_summary.values, 'perc':np.round(100*outliers_summary.values/nsubs,2)})
+fig.add_trace(go.Scatter(x=outliers_summary['tracts'], y=outliers_summary['no_outliers'], name="Number", marker=dict(color='darkslategray')), row=2, col=1, secondary_y=False);
+
+fig.add_trace(go.Scatter(x=outliers_summary['tracts'], y=outliers_summary['perc'], name="Percent", marker=dict(color='darkslategray')), row=2, col=1, secondary_y=True);
+
+fig.update_layout(showlegend=False, hovermode="x unified")
+fig.update_yaxes(title_text="# potential outliers", secondary_y=False)
+fig.update_yaxes(title_text="% potential outliers", secondary_y=True)
+
+fig.update_xaxes(showticklabels=False) # hide all the xticks
+fig.update_xaxes(title_text="Tract", showticklabels=True, row=2, col=1, tickmode='linear')
+
+fig.write_html(os.path.join(out, 'outlier_fig.html'))
+
+
+# build outlier report txt/csv
+# extreme outliers (those with more than 0.5*ntracts as outliers)
+grot = np.argwhere(vol_extreme_outliers.values == 1)
+grot = np.append(grot, np.argwhere(wt_extreme_outliers.values == 1))
+grot = np.unique(grot)
+
+sub_extreme_outliers_txt = []
+if grot.shape[0] > 0:
+    f = open(os.path.join(out, 'extreme_outliers.txt'), 'w')
+    for idx in grot:
+        sub_extreme_outliers_txt.append(f'{subject_list[idx]}\n')
+        f.write(f'{subject_list[idx]}\n')
+    f.close()
+
+# if subject is n_std away from mean for waytotal/volume
+# save outliers as .csv
+sub_outliers_path = os.path.join(out, 'tract_outliers.csv')
+wt_outliers.set_index(subject_list, inplace=True)
+wt_outliers = wt_outliers.astype("int")
+wt_outliers.to_csv(sub_outliers_path)
+n_outliers = np.sum(np.sum(wt_outliers))
+
+########################################## Create report
+env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=datadir))
+template = env.get_template('template_qc_report.html')
+filename = os.path.join(out, 'qc_report.html')
+with open(filename, 'w') as fh:
+    fh.write(template.render(
+        time = datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        ntracts = ntracts,
+        nsubs = nsubs,
+        n_std = n_std,
+        sumcheck_all_txt = sumcheck_all_txt,
+        sub_missing_txt = sub_missing_txt,
+        sub_missing_all_txt = sub_missing_all_txt,
+        sub_zerowt_txt = sub_zerowt_txt,
+        sub_outliers_path = sub_outliers_path,
+        n_outliers = n_outliers,
+        sub_extreme_outliers_txt = sub_extreme_outliers_txt,
+        ps_inc = ps_inc
+        ))
+
+
+print(f'Report generated\nSee {os.path.join(out, "qc_report.html")}')
+quit()
