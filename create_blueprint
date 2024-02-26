@@ -285,6 +285,7 @@ elif seed_type == 2:
     for p in seed_path[0:2]:
         temp = nib.load(p).darrays[0].data != 0
         seed.append(temp[:,0])
+
     # Convert to full cortex structure here (i.e. add in empty medial wall)
     if argsa.roi_path is not None:
         roi_path = argsa.roi_path.split(",")
@@ -296,6 +297,7 @@ elif seed_type == 2:
                 print('Binarising...')
                 temp = (temp > 0)*1
             roi.append(temp)
+        
         roi = np.concatenate((roi[0],roi[1]))
         # and append the subcortical seed
         nsubvox = np.sum(subseed_voxnum_list)
@@ -305,7 +307,6 @@ elif seed_type == 2:
         full_BP = np.zeros([np.shape(seed_temp)[0], np.shape(BP)[1]])
         full_BP[roi == 1, :] = BP
         BP = full_BP
-
     if argsa.savetxt:
         new_fname = os.path.join(out_folder, f'{prefix}BP.LR.txt')
         np.savetxt(new_fname, BP)
@@ -316,7 +317,6 @@ elif seed_type == 2:
         bm_l      = cifti2_axes.BrainModelAxis.from_mask(seed[0], name=f'CortexLeft')
         bm_r      = cifti2_axes.BrainModelAxis.from_mask(seed[1], name=f'CortexRight')
         bm        = bm_l + bm_r
-
         coords = np.loadtxt(os.path.join(ptx_folder[2], 'coords_for_fdt_matrix2'), dtype='int', ndmin=1)
         ref_img = nib.load(np.loadtxt(seed_path[2], dtype="str", ndmin=1)[0])
         start_idx = 0
