@@ -115,7 +115,7 @@ parser.add_argument("-tract_list", metavar='<list>', dest='tract_list', help="Co
 parser.add_argument("-str", metavar='<file>', dest='structureList', help="Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)")
 parser.add_argument("-p", metavar='<folder>', help=f"Protocols folder (all masks in same standard space) (Default={os.path.join(FSLDIR, 'data', 'xtract_data', '<SPECIES>')})")
 parser.add_argument("-stdref", metavar='<reference>', help=f"Standard space reference image (Default = {os.path.join(FSLDIR, 'data', 'standard', 'MNI152_T1_1mm [HUMAN]')}, {os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain [MACAQUE]')}, {os.path.join(datadir, 'standard', 'neonate', 'mri', 'schuh_template [HUMAN_BABY]')}")
-parser.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <diff2std> Non-linear Standard2diff and Diff2standard transforms (Default={os.path.join('bedpostx_dir', 'xfms', '{standard2diff.nii.gz,diff2standard.nii.gz}')})")
+parser.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <diff2std> Non-linear Standard2diff and Diff2standard transforms (Default={os.path.join('bedpostx_dir', 'xfms', '{standard2diff_warp.nii.gz,diff2standard_warp.nii.gz}')})")
 
 # Optional space arguments:
 parser.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
@@ -237,8 +237,13 @@ errchk(errflag)
 # check optional arguments and set defaults
 # default warps: <std2diff> <diff2std>
 if argsa.stdwarp is None:
-    std2diff = os.path.join(bpx, 'xfms', 'standard2diff.nii.gz')
-    diff2std = os.path.join(bpx, 'xfms', 'diff2standard.nii.gz')
+    # or standard2diff.nii.gz (and vice versa)
+    for std2diff in [os.path.join(bpx, 'xfms', 'standard2diff_warp.nii.gz'), os.path.join(bpx, 'xfms', 'standard2diff.nii.gz')]:
+        if imgtest(std2diff) == 1:
+            break
+    for diff2std in [os.path.join(bpx, 'xfms', 'diff2standard_warp.nii.gz'), os.path.join(bpx, 'xfms', 'diff2standard.nii.gz')]:
+        if imgtest(diff2std) == 1:
+            break
 else:
     std2diff, diff2std = argsa.stdwarp[0], argsa.stdwarp[1]
 
@@ -248,6 +253,7 @@ if imgtest(std2diff) == 0:
 if imgtest(diff2std) == 0:
     print(f'diff2std {diff2std} not found.')
     errflag = 1
+errchk(errflag)
 
 # reference warps (if using): <refimage> <diff2ref> <ref2diff>
 if argsa.ref is not False:
