@@ -23,6 +23,8 @@ FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
+
+
 # some useful functions
 def errchk(errflag):
     if errflag:
@@ -83,6 +85,7 @@ errflag=0
 if os.path.isfile(subject_list) is False:
     print(f'Subject list file {subject_list} not found')
     errflag=1
+
 if os.path.isdir(out):
     print('Warning: Output folder already exists. Some of the files may be overwritten')
 
@@ -90,6 +93,7 @@ if os.path.isdir(out):
 if thr == 0:
     print('Tract threshold (-thr) has been set to 0. Must be greater than 0. Default is 0.001')
     errflag=1
+
 if n_std == 0:
     print('Number of standard deviations (-n_std) has been set to 0. Must be greater than 0. Default is 2')
     errflag=1
@@ -97,8 +101,6 @@ errchk(errflag)
 
 
 os.makedirs(out, exist_ok=True)
-
-
 # get subject information
 subject_list = np.loadtxt(subject_list, dtype='str')
 
@@ -164,7 +166,10 @@ for ns, sub_path in enumerate(subject_list):
             tract_waytotal_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'waytotal'))
             tract_volume_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'volume'))
         else:
+            shutil.rmtree(sub_out, ignore_errors=True)
+            os.makedirs(sub_out, exist_ok=True)
             filecheck_all.loc[ns, :], tract_waytotal_all.loc[ns, :], tract_volume_all.loc[ns, :] = get_metrics(sub_path, sub_out, tracts, thr)
+    
     print("")
 
 if np.sum(subcheck) < nsubs:
@@ -254,6 +259,32 @@ def plot_tractwise_metric(metric, metric_name, n_std):
             n += 1
     fig.tight_layout()
     fig.savefig(os.path.join(out, f'{metric_name}_fig.jpg'))
+    plt.close()
+
+
+metric = tract_waytotal_all
+metric_name = 'waytotal'
+
+def plot_tractwise_metric(metric, metric_name, n_std):
+    k = 4  # Number of subplots per row
+    m = (ntracts + k - 1) // k  # Number of rows
+    metric = pd.melt(metric, var_name='tract', value_name=metric_name)
+    def plot_subplot(data, color, **kwargs):
+        sns.kdeplot(data, fill=False, color=color)
+        mean_val = np.mean(data)
+        median_val = np.median(data)
+        std_val = np.std(data)
+        plt.axvline(x=mean_val, color=color, ls=':')
+        plt.axvline(x=median_val, color=color, ls='--')
+        plt.axvspan(mean_val - n_std * std_val, mean_val + n_std * std_val, color=color, alpha=0.5)
+        plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+    g = sns.FacetGrid(metric, col="tract", col_wrap=k, height=4, aspect=1.75, sharey=False, sharex=False)
+    foo = g.map(plot_subplot, metric_name, color='crimson')
+    foo = g.set_titles("{col_name}")
+    foo = plt.subplots_adjust(top=0.9)
+    foo = g.fig.suptitle(f'Metric: {metric_name}', fontsize=20) 
+    g.savefig(os.path.join(out, f'{metric_name}_fig.jpg'))
     plt.close()
 
 plot_tractwise_metric(tract_waytotal_all, 'waytotal', n_std)
