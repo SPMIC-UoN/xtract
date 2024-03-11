@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import nibabel as nib
 import argparse, textwrap
+from tqdm import tqdm
 
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
@@ -137,16 +138,16 @@ for m in meas:
         meas_hdr.append(f'{m}_WP_median')
         meas_hdr.append(f'{m}_WP_std')
 
-
 stats = pd.DataFrame(index=tracts, columns=meas_hdr)
 print('\nProcessing...')
-for t in tracts:
-    print(f'\n{t}: ', end="", flush=True)
+progression_bar = tqdm(tracts)
+for t in (progression_bar):
+    progression_bar.set_description(f'{t}')
     tpath = os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz')
     tlengthpath = os.path.join(xtract, 'tracts', t, 'density_lengths.nii.gz')
     # deal with warping
     if warp != 'native':
-        print(f'warping... ', end="", flush=True)
+        progression_bar.set_description(f'{t}: warping')
         tpath = os.path.join(temp_dir.name, 'densityNorm_diffspace.nii.gz')
         applywarp(os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz'), tpath, ref, warp)
         # only warp tract_lengths if using it
@@ -158,7 +159,7 @@ for t in tracts:
     cmout = subprocess.run([os.path.join(FSLbin, "fslmaths"), tpath, '-thr', thr, '-bin', tbinpath])
     # get stats
     for m in meas:
-        print(f'{m} ', end="", flush=True)
+        progression_bar.set_description(f'{t}: getting metrics')
         if m == 'vol':
             # tract volume (mm)
             cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), tpath, '-l', thr, '-V'], capture_output=True, text=True)
