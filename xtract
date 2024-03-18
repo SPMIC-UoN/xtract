@@ -168,8 +168,6 @@ res = argsa.res
 interp = argsa.interp
 errflag = 0
 
-print(bpx)
-
 if FSLINFMRIB is not None and argsa.mac_ext is not None:
     if spec != 'MACAQUE':
         print(f'Error: `-species` is set to {spec} but you have specified `-mac_ext`')
