@@ -113,6 +113,7 @@ else:
             struct = line.strip()
             if struct and not struct.startswith("#"):
                 tracts.append(struct.split()[0])
+    tracts.sort()
 
 # dimensions of cohort
 nsubs = len(subject_list)

@@ -107,6 +107,7 @@ else:
     print('Getting stats for all tracts under "-xtract"')
     tracts = glob.glob(os.path.join(xtract, 'tracts', '*', 'densityNorm.nii.gz'))
     tracts = [os.path.basename(os.path.dirname(t)) for t in tracts]
+    tracts.sort()
 
 # report tracts and measures being included
 print(f'Tracts: {tracts}')
