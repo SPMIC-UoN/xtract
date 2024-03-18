@@ -51,16 +51,19 @@ parser = MyParser(prog='XTRACT Stats',
                         xtract_stats -xtract /data/xtract -d /data/Diffusion/dti_ -warp std2diff.nii.gz
                                          '''))
 
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
-parser.add_argument("-d", metavar='<folder_basename>', help="Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)", required=True)
+required.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
+required.add_argument("-d", metavar='<folder_basename>', help="Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)", required=True)
 
 # Optional arguments:
-parser.add_argument("-warp", metavar='<nifti>', nargs=2, help="If tract are not in the same space as the data in '-d', provide the reference image in diffusion space (e.g. /home/DTI/dti_FA) and the xtract space to reference space warp field")
-parser.add_argument("-out", metavar='<path>', help="Output filepath (Default <XTRACT_dir>/stats.csv)")
-parser.add_argument("-meas", metavar='<list>', default='vol,prob,length,FA,MD', help="Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)\nvol = tract volume, prob = tract probability, length = tract length\nAdditional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'")
-parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
-parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to tracts (default = 0.001).")
+optional.add_argument("-warp", metavar='<nifti>', nargs=2, help="If tract are not in the same space as the data in '-d', provide the reference image in diffusion space (e.g. /home/DTI/dti_FA) and the xtract space to reference space warp field")
+optional.add_argument("-out", metavar='<path>', help="Output filepath (Default <XTRACT_dir>/stats.csv)")
+optional.add_argument("-meas", metavar='<list>', default='vol,prob,length,FA,MD', help="Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)\nvol = tract volume, prob = tract probability, length = tract length\nAdditional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+optional.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to tracts (default = 0.001).")
 argsa = parser.parse_args()
 
 xtract = argsa.xtract

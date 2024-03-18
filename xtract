@@ -103,36 +103,40 @@ parser = MyParser(prog='XTRACT',
                   epilog=textwrap.dedent('''Example usage:
                         xtract -bpx /data/Diffusion.bedpostX -out /data/xtract -species HUMAN -stdwarp std2diff.nii.gz diff2std.nii.gz -gpu
                   '''))
-    
+
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder")
-parser.add_argument("-out", metavar='<folder>', help="Path to output folder")
-parser.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM.")
+required.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder")
+required.add_argument("-out", metavar='<folder>', help="Path to output folder")
+required.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM.")
 # parser.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'MACAQUE_F99', 'MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_NMT', 'MACAQUE_YRK', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM. Can also specify the macaque template space to be used by appending _[D99,INIA,NMT,YRK] (default is F99).")
 
 # Optional protocol arguments:
-parser.add_argument("-tract_list", metavar='<list>', dest='tract_list', help="Comma separated tract list defining the subset of tracts to run (must follow xtract naming convention)")
-parser.add_argument("-str", metavar='<file>', dest='structureList', help="Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)")
-parser.add_argument("-p", metavar='<folder>', help=f"Protocols folder (all masks in same standard space) (Default={os.path.join(FSLDIR, 'data', 'xtract_data', '<SPECIES>')})")
-parser.add_argument("-stdref", metavar='<reference>', help=f"Standard space reference image (Default = {os.path.join(FSLDIR, 'data', 'standard', 'MNI152_T1_1mm [HUMAN]')}, {os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain [MACAQUE]')}, {os.path.join(datadir, 'standard', 'neonate', 'mri', 'schuh_template [HUMAN_BABY]')}")
-parser.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <diff2std> Non-linear Standard2diff and Diff2standard transforms (Default={os.path.join('bedpostx_dir', 'xfms', '{standard2diff_warp.nii.gz,diff2standard_warp.nii.gz}')})")
+optional.add_argument("-tract_list", metavar='<list>', dest='tract_list', help="Comma separated tract list defining the subset of tracts to run (must follow xtract naming convention)")
+optional.add_argument("-str", metavar='<file>', dest='structureList', help="Structures file (format: <tractName> [samples=1], 1 means 1000, '#' to skip lines)")
+optional.add_argument("-p", metavar='<folder>', help=f"Protocols folder (all masks in same standard space) (Default={os.path.join(FSLDIR, 'data', 'xtract_data', '<SPECIES>')})")
+optional.add_argument("-stdref", metavar='<reference>', help=f"Standard space reference image (Default = {os.path.join(FSLDIR, 'data', 'standard', 'MNI152_T1_1mm [HUMAN]')}, {os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain [MACAQUE]')}, {os.path.join(datadir, 'standard', 'neonate', 'mri', 'schuh_template [HUMAN_BABY]')}")
+optional.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <diff2std> Non-linear Standard2diff and Diff2standard transforms (Default={os.path.join('bedpostx_dir', 'xfms', '{standard2diff_warp.nii.gz,diff2standard_warp.nii.gz}')})")
 
 # Optional space arguments:
-parser.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
-parser.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<refimage> <diff2ref> <ref2diff> Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms")
+optional.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
+optional.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<refimage> <diff2ref> <ref2diff> Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms")
 
 # Optional tracking/computing arguments:
-parser.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
-parser.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
-parser.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trilinear plus thresholding ('tri') is available")
-parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
-parser.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
-parser.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
-parser.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
+optional.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
+optional.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
+optional.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trilinear plus thresholding ('tri') is available")
+optional.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
+optional.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
+optional.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
+optional.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
 
 if FSLINFMRIB is not None:
-    parser.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
-    parser.add_argument("-mac_ext", metavar='<str>', choices=['_F99', '_D99', '_INIA', '_NMT', '_YRK'], default=None, help="Macaque template extension")
+    hidden = parser.add_argument_group('Hidden arguments')
+    hidden.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
+    hidden.add_argument("-mac_ext", metavar='<str>', choices=['_F99', '_D99', '_INIA', '_NMT', '_YRK'], default=None, help="Macaque template extension")
 
 argsa = parser.parse_args()
 
@@ -163,6 +167,8 @@ spec = argsa.species
 res = argsa.res
 interp = argsa.interp
 errflag = 0
+
+print(bpx)
 
 if FSLINFMRIB is not None and argsa.mac_ext is not None:
     if spec != 'MACAQUE':

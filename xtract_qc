@@ -63,15 +63,18 @@ parser = MyParser(prog='XTRACT QC',
                         xtract_qc -subject_list sublist.txt -out /data/xtract_qc
                                          '''))
 
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-subject_list", metavar='<txt>', help="Text file containing line separated subject-wise paths to XTRACT folders", required=True)
-parser.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
+required.add_argument("-subject_list", metavar='<txt>', help="Text file containing line separated subject-wise paths to XTRACT folders", required=True)
+required.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
 
 # Optional arguments:
-parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
-parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts for volume calculation (default = 0.001).")
-parser.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
-parser.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+optional.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts for volume calculation (default = 0.001).")
+optional.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
+optional.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
 argsa = parser.parse_args()
 
 subject_list = argsa.subject_list

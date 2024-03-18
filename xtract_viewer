@@ -46,15 +46,18 @@ parser = MyParser(prog='XTRACT Viewer',
                         xtract_viewer -xtract /data/xtract -species HUMAN
                                          '''))
 
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
-parser.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'MACAQUE_F99', 'MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_NMT', 'MACAQUE_YRK', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM. Can also specify the macaque template space to be used by appending _[D99,INIA,NMT,YRK] (default is F99).")
+required.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
+required.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'MACAQUE_F99', 'MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_NMT', 'MACAQUE_YRK', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM. Can also specify the macaque template space to be used by appending _[D99,INIA,NMT,YRK] (default is F99).")
 
 # Optional arguments:
-parser.add_argument("-brain", metavar='<nifti>', help="Path to custom brain teplate")
-parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
-parser.add_argument("-thr", metavar='<float>', default=[0.001, 0.1], nargs=2, type=float, help="Upper and lower threshold applied to tracts for viewing (default = [0.001 0.1]).")
-parser.add_argument("-print_cmd", action="store_true", default=False, help="Print the fsleyes command?")
+optional.add_argument("-brain", metavar='<nifti>', help="Path to custom brain teplate")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+optional.add_argument("-thr", metavar='<float>', default=[0.001, 0.1], nargs=2, type=float, help="Upper and lower threshold applied to tracts for viewing (default = [0.001 0.1]).")
+optional.add_argument("-print_cmd", action="store_true", default=False, help="Print the fsleyes command?")
 argsa = parser.parse_args()
 
 xtract = argsa.xtract
