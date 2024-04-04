@@ -23,7 +23,7 @@ def errchk(errflag):
 def imgtest(fname):
     r = subprocess.run([f'{os.path.join(FSLbin, "imtest")} {fname}'], capture_output=True, text=True, shell=True)
     return int(r.stdout)
-    
+
 def applywarp(fin, out, ref, warp, dtype, interp):
     if interp == 'tri':
         r = subprocess.run([os.path.join(FSLbin, "applywarp"), '-i', fin, '-o', out, '-r', ref, '-w', warp, '-d', dtype, '--interp=trilinear'])
@@ -111,7 +111,6 @@ optional = parser.add_argument_group('Optional arguments')
 required.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder")
 required.add_argument("-out", metavar='<folder>', help="Path to output folder")
 required.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM.")
-# parser.add_argument("-species", metavar='<SPECIES>', choices=['HUMAN', 'MACAQUE', 'MACAQUE_F99', 'MACAQUE_D99', 'MACAQUE_INIA', 'MACAQUE_NMT', 'MACAQUE_YRK', 'HUMAN_BABY', 'CUSTOM'], help="One of HUMAN or MACAQUE or HUMAN_BABY or CUSTOM. Can also specify the macaque template space to be used by appending _[D99,INIA,NMT,YRK] (default is F99).")
 
 # Optional protocol arguments:
 optional.add_argument("-tract_list", metavar='<list>', dest='tract_list', help="Comma separated tract list defining the subset of tracts to run (must follow xtract naming convention)")
@@ -181,6 +180,7 @@ if FSLINFMRIB is not None and argsa.mac_ext is not None:
 if not os.path.isdir(bpx):
     print(f'Bedpostx folder {bpx} not found')
     errflag = 1
+
 if os.path.isdir(out):
     print('Warning: output directory already exists. XTRACT may overwrite existing content.')
 
@@ -230,9 +230,11 @@ errchk(errflag)
 if imgtest(stdref) == 0:
     print(f"Standard space reference image '-stdref' {stdref} not found")
     errflag = 1
+
 if not os.path.isdir(p):
     print(f"Protocol folder {p} not found")
     errflag = 1
+
 if not os.path.isfile(structureList):
     print(f"Structures files {structureList} not found")
     errflag = 1
@@ -254,6 +256,7 @@ else:
 if imgtest(std2diff) == 0:
     print(f'std2diff {std2diff} not found.')
     errflag = 1
+
 if imgtest(diff2std) == 0:
     print(f'diff2std {diff2std} not found.')
     errflag = 1
@@ -303,10 +306,16 @@ errchk(errflag)
 # Set common ptx options
 nodif_bm = os.path.join(bpx, 'nodif_brain_mask')
 opts = f" -s {os.path.join(bpx, 'merged')} -m {nodif_bm} -V 1"
-opts += f" --loopcheck --forcedir --opd --ompl --sampvox=1 --randfib=1 "
+opts += " --loopcheck --forcedir --opd --ompl"
 
 # Add any user-defined ptx options
 opts += f" {ptx_opts}"
+
+if 'sampvox' not in ptx_opts: 
+    opts += " --sampvox=1"
+    
+if 'randfib' not in ptx_opts: 
+    opts += " --randfib=1"
 
 # space options
 if not argsa.native and argsa.ref is False:
@@ -352,9 +361,7 @@ print('Preparing submission script...')
 for struct, nseed in structure_arr:    
     structdir = os.path.join(out, 'tracts', struct)
     os.makedirs(structdir, exist_ok=True)
-
     nseed = int(float(nseed)*1000)
-
     maskdir = os.path.join(p, struct)
     maskdict = {'seed': '', 'target': '', 'exclude': '', 'stop': ''} # mask paths stored here
     #  DEALING WITH RESAMPLING --
@@ -414,11 +421,12 @@ for struct, nseed in structure_arr:
             with open(targetfile, 'w') as f:
                 print(*targets, file=f)
             maskdict['target'] = targetfile
-                
+    
     # Get generic options
     struct_opts = opts
     if imgtest(maskdict['stop']):
         struct_opts += f' --stop={maskdict["stop"]}'
+
     if imgtest(maskdict['exclude']):
         struct_opts += f' --avoid={maskdict["exclude"]}'
 
@@ -440,7 +448,11 @@ for struct, nseed in structure_arr:
         os.makedirs(structdir_inv, exist_ok=True)
         
         # invert targets/seed
-        targets_inv = targets.copy()
+        if argsa.native:
+            targets_inv = open(targetfile, "r").read().rstrip().split('\n')
+        else:
+            targets_inv = targets.copy()
+        
         targets_inv.reverse()
         targets_inv.append(maskdict["seed"])
         seed_inv = targets_inv.pop(0)
