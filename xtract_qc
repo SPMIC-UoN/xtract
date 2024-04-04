@@ -19,11 +19,11 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 
+from tqdm import tqdm
+
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
-
-
 
 # some useful functions
 def errchk(errflag):
@@ -63,15 +63,18 @@ parser = MyParser(prog='XTRACT QC',
                         xtract_qc -subject_list sublist.txt -out /data/xtract_qc
                                          '''))
 
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-subject_list", metavar='<txt>', help="Text file containing line separated subject-wise paths to XTRACT folders", required=True)
-parser.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
+required.add_argument("-subject_list", metavar='<txt>', help="Text file containing line separated subject-wise paths to XTRACT folders", required=True)
+required.add_argument("-out", metavar='<folder>', help="Path to output folder", required=True)
 
 # Optional arguments:
-parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
-parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts for volume calculation (default = 0.001).")
-parser.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
-parser.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+optional.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts for volume calculation (default = 0.001).")
+optional.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
+optional.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
 argsa = parser.parse_args()
 
 subject_list = argsa.subject_list
@@ -99,7 +102,6 @@ if n_std == 0:
     errflag=1
 errchk(errflag)
 
-
 os.makedirs(out, exist_ok=True)
 # get subject information
 subject_list = np.loadtxt(subject_list, dtype='str')
@@ -114,6 +116,7 @@ else:
             struct = line.strip()
             if struct and not struct.startswith("#"):
                 tracts.append(struct.split()[0])
+    tracts.sort()
 
 # dimensions of cohort
 nsubs = len(subject_list)
@@ -153,13 +156,11 @@ subcheck, filecheck_all, tract_waytotal_all, tract_volume_all = np.ones((nsubs,)
 # if using prior run, check if output files already exist
 # if it does, do nothing and move on
 # if it doesn't exist, get metrics
-for ns, sub_path in enumerate(subject_list):
-    print(f'{ns+1} of {nsubs}', end="")
+for ns, sub_path in enumerate(tqdm(subject_list)):
     sub_out = os.path.join(sub_path, 'xtract_qc')
-    # check the subject directory exists
     if os.path.isdir(sub_path) is False:
         subcheck[ns] = 1
-        print(f' : {sub_path} missing', end="")
+        print(f'{sub_path} missing')
     else:
         if argsa.use_prior and os.path.isfile(os.path.join(sub_out, 'filecheck')) and os.path.isfile(os.path.join(sub_out, 'waytotal')) and os.path.isfile(os.path.join(sub_out, 'volume')):
             filecheck_all.loc[ns, :] = np.loadtxt(os.path.join(sub_out, 'filecheck'))
@@ -169,15 +170,12 @@ for ns, sub_path in enumerate(subject_list):
             shutil.rmtree(sub_out, ignore_errors=True)
             os.makedirs(sub_out, exist_ok=True)
             filecheck_all.loc[ns, :], tract_waytotal_all.loc[ns, :], tract_volume_all.loc[ns, :] = get_metrics(sub_path, sub_out, tracts, thr)
-    
-    print("")
 
 if np.sum(subcheck) < nsubs:
     print(f'Could not find XTRACT folders for {int(np.sum(subcheck) - nsubs)} subject(s)')
     missing_list = os.path.join(out, 'missing_subjects.txt')
     np.savetxt(missing_list, subject_list[np.argwhere(subcheck == 0)], fmt="%s")
     print(f'Excluding from QC\nSee {missing_list} for list')
-
 
 print('Generating report...')
 ##########################################

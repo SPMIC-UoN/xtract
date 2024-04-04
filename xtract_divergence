@@ -1,0 +1,481 @@
+#!/usr/bin/env fslpython
+
+############ general script for getting divergence map and translating cortical scalar maps
+# Written by Shaun Warrington, Stephania Assimopoulos, Saad Jbabdi, Stam Sotiropoulos
+
+# %% prep libs
+import sys,os,glob,subprocess,time
+import argparse, textwrap, warnings
+from copy import copy, deepcopy
+from tempfile import mkdtemp
+from joblib import Parallel, delayed
+
+import numpy as np
+import pandas as pd
+import scipy
+from scipy.stats import entropy
+from numpy.linalg import norm
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+import nibabel as nib
+from nibabel import cifti2
+
+# %% functions
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
+
+def intersection(lst1, lst2):
+    lst3 = [value for value in lst1 if value in lst2]
+    return lst3
+
+def unique(list1):
+    list_set = set(list1)
+    unique_list = (list(list_set))
+    return unique_list
+
+# load gifti surfaces
+def load_surf(pathL, pathR):
+    surf = nib.load(pathL).agg_data()
+    surf = np.transpose(surf)
+    grot = nib.load(pathR).agg_data()
+    grot = np.transpose(grot)
+    surf = np.concatenate((surf, grot))
+    return surf
+
+# get useful CIFTI info and store in easy to reach places
+def get_info(bp):
+    bp_info = bp.header.get_axis(1)
+    bp_info.tracts = [i[0] for i in bp.header.get_axis(0)]
+    bp_info.cii_type = [i[0] for i in bp_info[:]]
+    bp_info.cii_coord = [i[1] for i in bp_info[:]]
+    bp_info.cii_structure = [i[2] for i in bp_info[:]]
+    bp_info.nvert = bp_info.cii_type.count('CIFTI_MODEL_TYPE_SURFACE')
+    bp_info.nvert_l = bp_info.cii_structure.count('CIFTI_STRUCTURE_CORTEX_LEFT')
+    bp_info.nvert_r = bp_info.cii_structure.count('CIFTI_STRUCTURE_CORTEX_RIGHT')
+    bp_info.nvox = bp_info.cii_type.count('CIFTI_MODEL_TYPE_VOXELS')
+    return bp_info
+
+# get a connectivity fingerpring based on the search index (vertex or voxel)
+def get_coord_plot_fingerprint(bp, bp_info, search_ind, hemi='L'):
+    if hasattr(search_ind, "__len__"):
+        coord = [coord[0] for coord in enumerate(bp_info.cii_coord[bp_info.nvert:]) if (coord[1] == search_ind).all()][0]
+        coord += bp_info.nvert-1
+    else:
+        if hemi == 'L':
+            coord = bp_info.cii_coord[:int(bp_info.nvert/2)].index(search_ind)
+        else:
+            coord = bp_info.cii_coord[int(bp_info.nvert/2):bp_info.nvert].index(search_ind)
+            coord = coord + int(bp_info.nvert/2)
+    return coord
+
+# ensure tract lists match across brains
+def fix_tract_list(bp, bp_info, tract_list):
+    new_tract_list = intersection(tract_list, bp_info.tracts)
+    new_tract_list.sort()
+    new_bp = np.zeros((len(new_tract_list), bp.shape[1]))
+    for i, str in enumerate(new_tract_list):
+        old_ind = bp_info.tracts.index(str)
+        new_bp[i, :] = bp[old_ind, :]
+    new_bp_info = deepcopy(bp_info)
+    new_bp_info.tracts = new_tract_list
+    return new_bp, new_bp_info
+
+def blueprint_entropy(bp):
+    with np.errstate(divide='ignore'):
+        bp = bp / np.sum(bp, axis=0)
+        entropy = -np.sum(bp*np.log2(bp + (bp == 0)), axis=0)
+    return entropy
+
+def KLD(A, B, shift_vals=False):
+    if shift_vals:
+        A = A+10**-6
+        B = B+10**-6
+    with np.errstate(divide='ignore'):
+        A = A / np.sum(A, axis=1, keepdims=True)
+        B = B / np.sum(B, axis=1, keepdims=True)
+    A[np.isnan(A)] = 0
+    B[np.isnan(B)] = 0
+    Amask = A!=0
+    Bmask = B!=0
+    with np.errstate(divide='ignore'):
+        D = np.dot(A*np.log2(A+(A==0)), Bmask.T) - np.dot(A, (Bmask*np.log2(B+(B==0))).T) + np.dot(Amask, (B*np.log2(B+(B==0))).T) - np.dot((Amask*np.log2(A+(A==0))), B.T)
+    return D
+
+def JSD(P, Q):
+    with np.errstate(divide='ignore'):
+        _P = P / norm(P, ord=1)
+        _Q = Q / norm(Q, ord=1)
+    _M = 0.5 * (_P + _Q)
+    return 0.5 * (entropy(_P, _M, base=2) + entropy(_Q, _M, base=2))
+
+def div_singleGO(bp1, bp2, template_cii, mask, outname=None, measure='KLD', coord=None):
+    if coord is not None:
+        bp1 = bp1[:, coord].reshape(-1, 1)
+    else:
+        bp1 = bp1.reshape(-1, 1)
+    if measure == 'KLD_bias':
+        print('Calculating KL divergence for ROI')
+        D = KLD(bp1.T, bp2.T)
+        D[:, mask == 0] = 0
+        if outname is not None:
+            ax_0 = nib.cifti2.ScalarAxis(['KLD'])
+            ax_1 = template_cii.header.get_axis(1)
+            new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
+            cii_new = nib.cifti2.Cifti2Image(D, new_h)
+            nib.save(cii_new, outname)
+    if measure == 'KLD':
+        print('Calculating KL divergence for ROI')
+        D = KLD(bp1.T, bp2.T, shift_vals=True)
+        D[:, mask == 0] = 0
+        if outname is not None:
+            ax_0 = nib.cifti2.ScalarAxis(['KLD'])
+            ax_1 = template_cii.header.get_axis(1)
+            new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
+            cii_new = nib.cifti2.Cifti2Image(D, new_h)
+            nib.save(cii_new, outname)
+    elif measure == 'JSD':
+        print('Calculating JS divergence for ROI')
+        D = JSD(bp1, bp2)
+        D[:, mask == 0] = 0
+        if outname is not None:
+            ax_0 = nib.cifti2.ScalarAxis(['JSD'])
+            ax_1 = template_cii.header.get_axis(1)
+            new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
+            cii_new = nib.cifti2.Cifti2Image(D.reshape(1, -1), new_h)
+            nib.save(cii_new, outname)
+    return D
+
+def div_wholebrain(bp1, bp2, template_cii, mask, outname=None, measure='KLD', num_cores=1):
+    os.environ["PYTHONWARNINGS"] = "ignore"
+    start = time.time()
+    if measure == 'KLD_bias':
+        print('Calculating KL divergence for whole-brain... this takes a moment')
+        D = KLD(bp1.T, bp2.T, shift_vals=False)
+        D[:, mask == 0] = 0
+    if measure == 'KLD':
+        print('Calculating KL divergence for whole-brain... this takes a moment')
+        D = KLD(bp1.T, bp2.T, shift_vals=True)
+        D[:, mask == 0] = 0
+    elif measure == 'JSD' and num_cores == 1:
+        print('Calculating JS divergence for whole-brain using a single core... this takes a moment')
+        D = np.zeros((bp1.shape[1], bp2.shape[1]))
+        for i in range(0, bp1.shape[1]):
+            D[i, :] = JSD(bp1[:, i].reshape(-1, 1), bp2)
+        D[:, mask == 0] = 0
+    elif measure == 'JSD' and num_cores > 1:
+        print(f'Calculating JS divergence for whole-brain using {num_cores} cores... this takes a moment')
+        filename = os.path.join(mkdtemp(), 'JSD_tmp.dat')
+        D = np.memmap(filename, dtype='float32', mode='w+', shape=(bp1.shape[1], bp2.shape[1]))
+        def compute_and_update(i):
+            D[i, :] = JSD(bp1[:, i].reshape(-1, 1), bp2)
+        Parallel(n_jobs=num_cores)(delayed(compute_and_update)(i) for i in range(0, bp1.shape[1]))
+        D[:, mask == 0] = 0
+    end = time.time()
+    print(f'Time taken: {end - start:.2f}s')
+    if outname is not None:
+        print('Saving...')
+        start = time.time()
+        ax_0 = nib.cifti2.ScalarAxis(list(range(0, bp1.shape[1])))
+        ax_1 = template_cii.header.get_axis(1)
+        new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
+        cii_new = nib.cifti2.Cifti2Image(D, new_h)
+        nib.save(cii_new, outname)
+        end = time.time()
+        print(f'Time taken: {end - start:.2f}s')
+    os.environ["PYTHONWARNINGS"] = "default"
+    return D
+
+def predict_map(D, source_map, gamma=-4):
+    with np.errstate(divide='ignore'):
+        W = np.power(D, gamma)
+        W[np.where(np.isinf(W))] = 0
+        W[np.where(np.isnan(W))] = 0
+        pred = np.dot(W/np.sum(W, axis=1, keepdims=True), source_map.reshape(-1))
+    return pred
+
+def save_surf(data, path, template, side):
+    template.darrays[0].data = data
+    nib.save(template, f'{path}.{side}.func.gii')
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+# %% arguments
+splash = """
+__  _______ ____      _    ____ _____   _ _       
+\ \/ /_   _|  _ \    / \  / ___|_   _|_| (_)_   __
+ \  /  | | | |_) |  / _ \| |     | |/ _` | \ \ / /
+ /  \  | | |  _ <  / ___ \ |___  | | (_| | |\ V / 
+/_/\_\ |_| |_| \_\/_/   \_\____| |_|\__,_|_| \_/  
+                                                  
+
+ """
+print(splash)
+
+parser = MyParser(prog='xtract_divergence',
+                  description='xtract_divergence: Cross-brain divergence for divergence maps and translations',
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=textwrap.dedent('''Example call for human-to-macaque prediction of cortical MT+ ROI in the left hemisphere:
+                xdiv -bpa human_BP.LR.dscalar.nii -bpb macaque_BP.LR.dscalar.nii 
+                    -masksa humam_atlasroi.L.shape.gii human_atlasroi.R.shape.gii
+                    -masksb macaque_atlasroi.L.shape.gii macaque_atlasroi.R.shape.gii
+                    -roi human_MTplus.L.shape.gii -hemi L
+                                         
+                    "-roi" flag options: 
+                            <path> to NIFTI/GIFTI binary mask. Mean blueprint in ROI used to calculate divergence to target whole-brain.
+                            <int> single greyordinare vertex index. i.e. divergence between cortical location and whole-brain.
+                            [<int>,<int>,<int>] ijk greyordinates. i.e. divergence between subcortical location and whole-brain.
+                            <str> CIFTI subcortical structure. Options are those available as subcortical structures in the CIFTI convention CIFTI_STRUCTURE_* e.g. "CIFTI_STRUCTURE_THALAMUS_LEFT".
+                            If no option supplied, will calculate dense (whole-brain to whole-brain) divergence. 
+                  '''))
+
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
+required.add_argument("-bpa", metavar='<CIFTI>', dest='bpa_path', required=True, help="Path to CIFTI blueprint. This is the base blueprint")
+required.add_argument("-bpb", metavar='<CIFTI>', dest='bpb_path', required=True, help="Path to CIFTI blueprint. This is the target blueprint: the space in which results will be saved")
+required.add_argument("-out", metavar='<folder>', required=True, help="Path to output folder (plus any filename prefixes)")
+required.add_argument("-masksa", metavar='<GIFTI>', nargs=2, dest='maskaLR_path', required=True, help="Path to GIFTI cortical left/right ROIs (excluding medial wall) of the base blueprint")
+required.add_argument("-masksb", metavar='<GIFTI>', nargs=2, dest='maskbLR_path', required=True, help="Path to GIFTI cortical left/right ROIs (excluding medial wall) of the target blueprint")
+
+optional.add_argument("-metric", metavar='<str>', choices=['KLD', 'KLD_bias', 'JSD'], default='KLD', help="Kullback-Liebler (well-behaved KLD with additional processing, default option), KLD (no additional processing, KLD_bias), or Jenson-Shannon (JSD) divergence")
+optional.add_argument("-roi", metavar='<path,<int>,[<int>,<int>,<int>],<str>', help="ROI or greyordinate coordinates (vertex index or voxel ijk indices) or CIFTI structure to calculate divergence wrt whole-brain. '-roi' requires '-hemi' to be defined.")
+optional.add_argument("-base_scalars", metavar='<GIFTI>', nargs=2, dest='source_maps', help="The scalar maps (left/right GIFTIs) to translate between brains")
+optional.add_argument("-target_scalars", metavar='<GIFTI>', nargs=2, dest='target_maps', help="Scalar maps (left/right GIFTIs) in the target space")
+optional.add_argument("-hemi", metavar='<str>', choices=['L', 'R'], help="If ROI prediction, the hemisphere of the ROI")
+
+optional.add_argument("-names", metavar='<str>', nargs=2, help="Names of base and target brains")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated tract list defining the set of tracts to include - these must present in each brain")
+optional.add_argument("-ncores", metavar='<int>', default=1, type=int, help="For JSD, you may specify single-core (default) or multi-core processing")
+
+argsa = parser.parse_args()
+
+bpa_path = argsa.bpa_path
+bpb_path = argsa.bpb_path
+out = argsa.out
+metric = argsa.metric
+maskaLR_path = argsa.maskaLR_path
+maskbLR_path = argsa.maskbLR_path
+
+# %% perform checks
+errflag = 0
+if not os.path.isfile(bpa_path):
+    print(f"Blueprint file {bpa_path} not found")
+    errflag = 1
+
+if not os.path.isfile(bpb_path):
+    print(f"Blueprint file {bpb_path} not found")
+    errflag = 1
+
+for mp in maskaLR_path + maskaLR_path:
+    if not os.path.isfile(mp):
+        print(f"Cortical mask file {mp} not found")
+        errflag = 1
+errchk(errflag)
+
+# check for whether prediction of scalar map or divergence map
+if argsa.roi is not None and argsa.source_maps is not None:
+    print('Error: -roi and -base_maps are mutually exclusive. Please selected only one.')
+    errflag = 1
+    errchk(errflag)
+elif argsa.roi is not None:
+    cmode = 'roi_div'
+    print('ROI divergence mode')
+    roi = argsa.roi
+    if os.path.isfile(roi):
+        print('ROI is image file')
+        roi_type = 'img'
+        if not os.path.isfile(roi):
+            print(f'ROI file {roi} not found')
+            errflag = 1
+    elif 'CIFTI_STRUCTURE_' in roi:
+        print('ROI is CIFTI structure')
+        roi_type = 'ciistruct'
+    else:
+        try:
+            roi = int(roi)
+            print(f'ROI is vertex {roi}')
+            roi_type = 'vertex'
+        except:
+            roi = np.array(roi.split(','), dtype='int')
+            print(f'ROI is voxel {roi}')
+            roi_type = 'voxel'
+            if len(roi) != 3:
+                print(f'Voxel coordinates should be [int, int, int], length of 3. Current length is {len(roi)}')
+                errflag = 1
+elif argsa.source_maps is not None:
+    cmode = 'translate'
+    print('Scalar map translation mode')
+    source_maps = argsa.source_maps
+    for sm in source_maps:
+        if not os.path.isfile(sm):
+            print(f'Scalar map file {sm} not found')
+            errflag = 1
+    if argsa.target_maps is None:
+        print('Error: if running scalar map prediction, equivalent scalar maps in the target space are required')
+        errflag = 1
+    else:
+        target_maps = argsa.target_maps
+        for sm in target_maps:
+            if not os.path.isfile(sm):
+                print(f'Scalar map file {sm} not found')
+                errflag = 1
+elif argsa.roi is None and argsa.source_maps is None:
+    cmode = 'wb_div'
+    print('Whole-brain divergence mode')
+
+if argsa.roi is not None and argsa.hemi is None:
+    print('For ROI predictions, you must specify the hemisphere')
+    errflag = 1
+errchk(errflag)
+
+if argsa.names is None:
+    names = ['a', 'b']
+else:
+    names = [argsa.names[0], argsa.names[1]]
+
+# %% load data
+bpa = nib.load(bpa_path)
+bpafull = bpa.get_fdata(dtype=np.float32)
+bpa_info = get_info(bpa)
+a_nvert_l = int(bpa_info.nvert/2)
+
+bpb = nib.load(bpb_path)
+bpbfull = bpb.get_fdata(dtype=np.float32)
+bpb_info = get_info(bpb)
+b_nvert_l = int(bpb_info.nvert/2)
+
+# load medial wall masks
+maska = load_surf(maskaLR_path[0], maskaLR_path[1])
+maskb = load_surf(maskbLR_path[0], maskbLR_path[1])
+
+maska = np.concatenate((maska, np.ones(bpa_info.nvox)))
+maskb = np.concatenate((maskb, np.ones(bpb_info.nvox)))
+
+# %% prepare data (check tracts)
+if argsa.tract_list is not None:
+    tract_list = argsa.tract_list.split(',')
+else:
+    tract_list = intersection(bpa_info.tracts, bpb_info.tracts)
+
+temp_bpa, temp_bpa_info = fix_tract_list(bpafull, bpa_info, tract_list)
+temp_bpb, temp_bpb_info = fix_tract_list(bpbfull, bpb_info, tract_list)
+
+assert temp_bpa_info.tracts == temp_bpb_info.tracts
+print(f'\nUsing {len(temp_bpa_info.tracts)} tracts:')
+print(*temp_bpa_info.tracts, sep =', ')
+print('')
+
+# %% perform analysis
+if cmode == 'roi_div':
+    if roi_type in ['voxel', 'vertex']:
+        coord = get_coord_plot_fingerprint(bpafull, bpa_info, roi, hemi=argsa.hemi)
+        print(coord)
+        if roi_type == 'voxel':
+            roi_name = "-".join(map(str, roi))
+        else:
+            roi_name = str(roi)
+        foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_{metric}_{roi_type}_{roi_name}.dscalar.nii')
+        D = div_singleGO(temp_bpa, temp_bpb, bpb, maskb, outname=foutname, measure=metric, coord=coord)
+    elif roi_type == 'ciistruct':
+        roi_idx = [i for i,s in enumerate(bpa_info.cii_structure) if s == roi]
+        print(f'Avergaing blueprint across {len(roi_idx)} greyordinates')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            temp_bpa_roi = np.mean(temp_bpa[:, roi_idx], axis=1)
+        roi_name = roi.replace('CIFTI_STRUCTURE_', '')
+        foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_{metric}_{roi_name}.dscalar.nii')
+        D = div_singleGO(temp_bpa_roi, temp_bpb, bpb, maskb, outname=foutname, measure=metric)
+    elif roi_type == 'img':
+        # add a check for whether the ROI is GIFTI (left or right) or NIFTI and then restrict the search accordingly
+        if roi.endswith('.nii.gz'):
+            roi_img = nib.load(roi)
+            roi_img = roi_img.get_fdata()
+            if np.unique(roi_img).shape[0] > 2:
+                print('Warning!! ROI mask is not binary.')
+                print('Binarising...')
+                roi_img = (roi_img > 0)*1
+            roi_img = np.argwhere(roi_img == 1)
+
+            roi_idx = []
+            for search_ind in roi_img:
+                coord = [coord[0]+bpa_info.nvert for coord in enumerate(bpa_info.cii_coord[bpa_info.nvert:]) if (coord[1] == search_ind).all()]
+                if len(coord) == 1:
+                    roi_idx.append(coord[0])
+            print(f'Avergaing blueprint across {len(roi_idx)} greyordinates')
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                temp_bpa_roi = np.mean(temp_bpa[:, roi_idx], axis=1)
+        ###### for gii ROIs, need to sort indexing... ROI is not full surface structure
+        elif roi.endswith('.gii'):
+            roi_img = nib.load(roi)
+            roi_img = roi_img.darrays[0].data
+            if np.unique(roi_img).shape[0] > 2:
+                print('Warning!! Medial wall mask is not binary.')
+                print('Binarising...')
+                roi_img = (roi_img > 0)*1
+            roi_img = roi_img.astype(int)
+            
+            # reduce the blueprint to the hemisphere vertices of interest
+            if argsa.hemi == 'L':
+                temp_bpa_roi = temp_bpa[:, :bpa_info.nvert_l]
+            else:
+                temp_bpa_roi = temp_bpa[:, bpa_info.nvert_l:bpa_info.nvert]
+            print(f'Avergaing blueprint across {np.sum(roi_img)} greyordinates')
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                temp_bpa_roi = np.mean(temp_bpa_roi[:, roi_img == 1], axis=1)
+
+        roi_name = os.path.basename(roi)
+        roi_name = roi_name.replace('.nii.gz', '').replace('.func.gii', '').replace('.shape.gii', '')
+        foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_{metric}_{roi_name}.dscalar.nii')
+        D = div_singleGO(temp_bpa_roi, temp_bpb, bpb, maskb, outname=foutname, measure=metric)
+elif cmode == 'translate':
+    #.... do scalar prediction...
+    source_map_img = load_surf(source_maps[0], source_maps[1])
+
+    ####### run left hemisphere prediction
+    print('Predicting left scalar...')
+    temp_bpa_l = temp_bpa[:, :a_nvert_l]
+    temp_bpb_l = temp_bpb[:, :b_nvert_l]
+    div = div_wholebrain(temp_bpb_l, temp_bpa_l, bpa, maskb[:b_nvert_l], measure=metric, num_cores=argsa.ncores)
+    map_pred_l = predict_map(div, source_map_img[:a_nvert_l])
+
+    # null medial wall (required only for for SKLD)
+    tempmask = maskb[:b_nvert_l]
+    map_pred_l[tempmask == 0] = 0
+
+    # save prediction
+    template_surf = nib.load(target_maps[0])
+    foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_scalar_prediction_{metric}')
+    save_surf(map_pred_l, foutname, template_surf, 'L')
+
+    ####### run right hemisphere prediction
+    print('Predicting right scalar...')
+    temp_bpa_r = temp_bpa[:, a_nvert_l:bpa_info.nvert]
+    temp_bpb_r = temp_bpb[:, b_nvert_l:bpb_info.nvert]
+    div = div_wholebrain(temp_bpb_r, temp_bpa_r, bpa, maskb[b_nvert_l:bpb_info.nvert], measure=metric, num_cores=argsa.ncores)
+    map_pred_r = predict_map(div, source_map_img[a_nvert_l:bpa_info.nvert])
+    tempmask = maskb[b_nvert_l:bpb_info.nvert]
+    map_pred_r[tempmask == 0] = 0
+    template_surf = nib.load(target_maps[1])
+    save_surf(map_pred_l, os.path.join(out, f'{names[0]}_to_{names[1]}_scalar_prediction_{metric}'), template_surf, 'R')
+elif cmode == 'wb_div':
+    foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_{metric}.dscalar.nii')
+    div = div_wholebrain(temp_bpa, temp_bpb, bpb, maskb, measure=metric, num_cores=argsa.ncores, outname=foutname)
+
+print('Finished')
+print(f'File saved: {foutname}')
+
+quit()

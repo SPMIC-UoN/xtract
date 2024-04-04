@@ -68,45 +68,49 @@ parser = MyParser(prog='XTRACT Blueprint',
                                          -warps ref.nii.gz xtract2diff.nii.gz diff2xtract.nii.gz -gpu
                   '''))
 
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder", required=True)
-parser.add_argument("-xtract", metavar='<folder>', help="Path to xtract folder", required=True)
-parser.add_argument("-seeds", metavar='<list>', help="Comma separated list of seeds for which a blueprint is requested (e.g. left and right cortex in standard space)", required=True)
-parser.add_argument("-target", metavar='<mask>', help="A whole brain/WM binary target mask in the same space as the seeds", required=True)
+required.add_argument("-bpx", metavar='<folder>', help="Path to bedpostx folder", required=True)
+required.add_argument("-xtract", metavar='<folder>', help="Path to xtract folder", required=True)
+required.add_argument("-seeds", metavar='<list>', help="Comma separated list of seeds for which a blueprint is requested (e.g. left and right cortex in standard space)", required=True)
+required.add_argument("-target", metavar='<mask>', help="A whole brain/WM binary target mask in the same space as the seeds", required=True)
 
 # Either standard space or native space?
-parser.add_argument("-warps", metavar='<path>', nargs=3, help="<ref> <xtract2diff> <diff2xtract> Standard space reference image, and transforms between xtract space and diffusion space")
-parser.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
+optional.add_argument("-warps", metavar='<path>', nargs=3, help="<ref> <xtract2diff> <diff2xtract> Standard space reference image, and transforms between xtract space and diffusion space")
+optional.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
 
 # Optional arguments:
-parser.add_argument("-out", metavar='<folder>', help="Path to output folder (default is <xtract_dir>/blueprint)")
-parser.add_argument("-stage", choices=[0, 1, 2], default=0, type=int, help="What to run. 0:everythng (default), 1:matrix2, 2:blueprint")
-parser.add_argument("-savetxt", action="store_true", default=False, help="Save blueprint as txt file (nseed by ntracts) instead of CIFTI")
-parser.add_argument("-prefix", metavar='<string>', help="Specify a prefix for the final blueprint filename (e.g. <prefix>_BP.LR.dscalar.nii)")
+optional.add_argument("-out", metavar='<folder>', help="Path to output folder (default is <xtract_dir>/blueprint)")
+optional.add_argument("-stage", choices=[0, 1, 2], default=0, type=int, help="What to run. 0:everythng (default), 1:matrix2, 2:blueprint")
+optional.add_argument("-savetxt", action="store_true", default=False, help="Save blueprint as txt file (nseed by ntracts) instead of CIFTI")
+optional.add_argument("-prefix", metavar='<string>', help="Specify a prefix for the final blueprint filename (e.g. <prefix>_BP.LR.dscalar.nii)")
 
 # Optional tracking arguments:
-parser.add_argument("-rois", metavar='<list>', help="Comma separated list (1 per seed): ROIs (gifti) to restrict seeding (e.g. medial wall masks)")
-parser.add_argument("-stops", metavar='<stop.txt>', help="Text file containing line separated list of stop masks (see probtrackx usage for details)")
-parser.add_argument("-wtstops", metavar='<wtstop.txt>', help="Text file containing line separated list of wtstop masks (see probtrackx usage for details)")
-parser.add_argument("-exclusion", metavar='<nifti>', help="NIFTI containing a binary exclusion mask")
-parser.add_argument("-subseed", metavar='<subseed.txt>', help="Text file containing line separated list of subcortical seeds")
-parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
-parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts prior to blueprint calculation (default = 0.001)")
-parser.add_argument("-nsamples", metavar='<int>', default=1000, type=int, help="Number of samples per seed used in tractography (default = 1000)")
-parser.add_argument("-res", metavar='<float>', default=3, type=float, help="Resolution of matrix2 output (Default = 3 mm). Set to 0 for standard space resolution.")
-parser.add_argument("-ptx_options", metavar='<options.txt>', default=False, help="Pass extra probtrackx2 options as a text file to override defaults")
+optional.add_argument("-rois", metavar='<list>', help="Comma separated list (1 per seed): ROIs (gifti) to restrict seeding (e.g. medial wall masks)")
+optional.add_argument("-stops", metavar='<stop.txt>', help="Text file containing line separated list of stop masks (see probtrackx usage for details)")
+optional.add_argument("-wtstops", metavar='<wtstop.txt>', help="Text file containing line separated list of wtstop masks (see probtrackx usage for details)")
+optional.add_argument("-exclusion", metavar='<nifti>', help="NIFTI containing a binary exclusion mask")
+optional.add_argument("-subseed", metavar='<subseed.txt>', help="Text file containing line separated list of subcortical seeds")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+optional.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts prior to blueprint calculation (default = 0.001)")
+optional.add_argument("-nsamples", metavar='<int>', default=1000, type=int, help="Number of samples per seed used in tractography (default = 1000)")
+optional.add_argument("-res", metavar='<float>', default=3, type=float, help="Resolution of matrix2 output (Default = 3 mm). Set to 0 for standard space resolution.")
+optional.add_argument("-ptx_options", metavar='<options.txt>', default=False, help="Pass extra probtrackx2 options as a text file to override defaults")
 
 # Optional computing arguments:
-parser.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
-parser.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
-parser.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
+optional.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
+optional.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
+optional.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
 
 if FSLINFMRIB is not None:
-    parser.add_argument("-dev_create", metavar='<path>', default=None, help="Path to development create_blueprint script (default=$FSLDIR/bin/create_blueprint)")
-    parser.add_argument("-submem", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
-    parser.add_argument("-subtime", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
-    parser.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
-    parser.add_argument("-job_wait", metavar='<jobID>', default=None, help="Set a job dependency (default=None)")
+    hidden = parser.add_argument_group('Hidden arguments')
+    hidden.add_argument("-dev_create", metavar='<path>', default=None, help="Path to development create_blueprint script (default=$FSLDIR/bin/create_blueprint)")
+    hidden.add_argument("-submem", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
+    hidden.add_argument("-subtime", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
+    hidden.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
+    hidden.add_argument("-job_wait", metavar='<jobID>', default=None, help="Set a job dependency (default=None)")
 
 argsa = parser.parse_args()
 

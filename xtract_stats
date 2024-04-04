@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import nibabel as nib
 import argparse, textwrap
+from tqdm import tqdm
 
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
@@ -50,16 +51,19 @@ parser = MyParser(prog='XTRACT Stats',
                         xtract_stats -xtract /data/xtract -d /data/Diffusion/dti_ -warp std2diff.nii.gz
                                          '''))
 
+required = parser.add_argument_group('Required arguments')
+optional = parser.add_argument_group('Optional arguments')
+
 # Compulsory arguments:
-parser.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
-parser.add_argument("-d", metavar='<folder_basename>', help="Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)", required=True)
+required.add_argument("-xtract", metavar='<folder>', help="Path to XTRACT output folder", required=True)
+required.add_argument("-d", metavar='<folder_basename>', help="Path to microstructure folder and basename of data (e.g. /home/DTI/dti_)", required=True)
 
 # Optional arguments:
-parser.add_argument("-warp", metavar='<nifti>', nargs=2, help="If tract are not in the same space as the data in '-d', provide the reference image in diffusion space (e.g. /home/DTI/dti_FA) and the xtract space to reference space warp field")
-parser.add_argument("-out", metavar='<path>', help="Output filepath (Default <XTRACT_dir>/stats.csv)")
-parser.add_argument("-meas", metavar='<list>', default='vol,prob,length,FA,MD', help="Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)\nvol = tract volume, prob = tract probability, length = tract length\nAdditional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'")
-parser.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
-parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to tracts (default = 0.001).")
+optional.add_argument("-warp", metavar='<nifti>', nargs=2, help="If tract are not in the same space as the data in '-d', provide the reference image in diffusion space (e.g. /home/DTI/dti_FA) and the xtract space to reference space warp field")
+optional.add_argument("-out", metavar='<path>', help="Output filepath (Default <XTRACT_dir>/stats.csv)")
+optional.add_argument("-meas", metavar='<list>', default='vol,prob,length,FA,MD', help="Comma separated list of features to extract (Default = vol,prob,length,FA,MD - assumes DTI folder has been provided)\nvol = tract volume, prob = tract probability, length = tract length\nAdditional metrics must follow file naming conventions. e.g. for dti_L1 use 'L1'")
+optional.add_argument("-tract_list", metavar='<list>', help="Comma separated list of tracts to include (default = all found under -xtract <folder>)")
+optional.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to tracts (default = 0.001).")
 argsa = parser.parse_args()
 
 xtract = argsa.xtract
@@ -106,6 +110,7 @@ else:
     print('Getting stats for all tracts under "-xtract"')
     tracts = glob.glob(os.path.join(xtract, 'tracts', '*', 'densityNorm.nii.gz'))
     tracts = [os.path.basename(os.path.dirname(t)) for t in tracts]
+    tracts.sort()
 
 # report tracts and measures being included
 print(f'Tracts: {tracts}')
@@ -137,16 +142,16 @@ for m in meas:
         meas_hdr.append(f'{m}_WP_median')
         meas_hdr.append(f'{m}_WP_std')
 
-
 stats = pd.DataFrame(index=tracts, columns=meas_hdr)
 print('\nProcessing...')
-for t in tracts:
-    print(f'\n{t}: ', end="", flush=True)
+progression_bar = tqdm(tracts)
+for t in (progression_bar):
+    progression_bar.set_description(f'{t}')
     tpath = os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz')
     tlengthpath = os.path.join(xtract, 'tracts', t, 'density_lengths.nii.gz')
     # deal with warping
     if warp != 'native':
-        print(f'warping... ', end="", flush=True)
+        progression_bar.set_description(f'{t}: warping')
         tpath = os.path.join(temp_dir.name, 'densityNorm_diffspace.nii.gz')
         applywarp(os.path.join(xtract, 'tracts', t, 'densityNorm.nii.gz'), tpath, ref, warp)
         # only warp tract_lengths if using it
@@ -158,7 +163,7 @@ for t in tracts:
     cmout = subprocess.run([os.path.join(FSLbin, "fslmaths"), tpath, '-thr', thr, '-bin', tbinpath])
     # get stats
     for m in meas:
-        print(f'{m} ', end="", flush=True)
+        progression_bar.set_description(f'{t}: getting metrics')
         if m == 'vol':
             # tract volume (mm)
             cmout = subprocess.run([os.path.join(FSLbin, "fslstats"), tpath, '-l', thr, '-V'], capture_output=True, text=True)

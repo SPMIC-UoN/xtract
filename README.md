@@ -7,26 +7,21 @@ define a set of masks in standard space (e.g. MNI152).
 The script was written by Shaun Warrington, Saad Jbabdi & Stamatios Sotiropoulos
 (based on the autoPtx tool by Marius de Groot - see https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/AutoPtx)
 
-The HUMAN and MACAQUE tractography protocols were created by:
+The HUMAN and MACAQUE tractography protocols were created by: Rogier Mars, Stamatios Sotiropoulos, Saad Jbabdi, Kathryn Bryant, Shaun Warrington, Marina Charquero-Ballester, Gwenaelle Douaud
 
-Rogier Mars, Stamatios Sotiropoulos, Saad Jbabdi, Kathryn Bryant, Shaun Warrington, Marina Charquero-Ballester, Gwenaelle Douaud
+The BABY tractography protocols were created by: Elinor Thompson, Shaun Warrington, Matteo Bastiani, Jessica Dubois, Stamatios Sotiropoulos
 
-The BABY tractography protocols were created by:
-
-Elinor Thompson, Shaun Warrington, Matteo Bastiani, Jessica Dubois, Stamatios Sotiropoulos
-
-The MACAQUE tractography protocols were generalised across templates by:
-
-Stephania Assimopoulos, Shaun Warrington, Stamatios Sotiropoulos
-
+The MACAQUE tractography protocols were generalised across templates by: Stephania Assimopoulos, Shaun Warrington, Stamatios Sotiropoulos
 
 The XTRACT viewer helper script was written by Shaun Warrington
 
 The XTRACT stats helper script was written by Shaun Warrington
 
-The XTRACT blueprint helper script was written by Shaun Warrington and Saad Jbabdi
+The XTRACT blueprint script was written by Shaun Warrington and Saad Jbabdi
 
 The XTRACT QC helper script was written by Shaun Warrington
+
+The XTRACT divergence script was written by Shaun Warrington and Stephania Assimopoulos
 
 ---------------------------------------------------------------------
 
@@ -42,8 +37,8 @@ NeuroImage, 76(1), 400-411. DOI: 10.1016/j.neuroimage.2013.03.015
 
 If you use the neonatal protocols, please cite:
 
-Warrington, S.*, Thompson, E.*, Bastiani, M., Dubois, J., Baxter, L., Slater, R., Jbabdi, S., Mars, R.B., 
-and Sotiropoulos, S.N. (2022) “Concurrent mapping of brain ontogeny and phylogeny within a common space: 
+Warrington, S.*, Thompson, E.*, Bastiani, M., Dubois, J., Baxter, L., Slater, R., Jbabdi, S., Mars, R.B.,
+and Sotiropoulos, S.N. (2022) “Concurrent mapping of brain ontogeny and phylogeny within a common space:
 Standardized tractography and applications”, Science Advances, vol. 8(42), doi.org/10.1101/2022.03.03.482776
 
 If you use the macaque protocols, please cite:
@@ -54,4 +49,3 @@ Assimopoulos, S., Warrington, S., Bryant, K.L., Pszczolkowski, S., Jbabdi S., Ma
 ---------------------------------------------------------------------
 
 For full details and usage, see the FSL wiki page: https://fsl.fmrib.ox.ac.uk/fsl/docs/#/diffusion/xtract
-
