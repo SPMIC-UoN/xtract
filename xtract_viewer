@@ -128,8 +128,8 @@ for ind, t in enumerate(tracts):
         # if right exists, colour in the same way
         if '_l' in t:
             tt = t.replace('_l', '_r')
-            if tt in tracts:
-                tt_file = os.path.join(xtract, 'tracts', tt, 'densityNorm.nii.gz')
+            tt_file = os.path.join(xtract, 'tracts', tt, 'densityNorm.nii.gz')
+            if tt in tracts and imgtest(tt_file) == 1:
                 eyes_cmd = f'{eyes_cmd} {t_file} {opts} -cm {cmaps[ii]} -n {t}'
                 eyes_cmd = f'{eyes_cmd} {tt_file} {opts} -cm {cmaps[ii]} -n {tt}'
                 t_proc.append(t)
