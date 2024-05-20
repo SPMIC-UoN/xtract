@@ -59,7 +59,7 @@ def get_info(bp):
     bp_info.nvox = bp_info.cii_type.count('CIFTI_MODEL_TYPE_VOXELS')
     return bp_info
 
-# get a connectivity fingerpring based on the search index (vertex or voxel)
+# get a connectivity fingerprint based on the search index (vertex or voxel)
 def get_coord_plot_fingerprint(bp, bp_info, search_ind, hemi='L'):
     if hasattr(search_ind, "__len__"):
         coord = [coord[0] for coord in enumerate(bp_info.cii_coord[bp_info.nvert:]) if (coord[1] == search_ind).all()][0]

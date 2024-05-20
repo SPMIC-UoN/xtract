@@ -418,7 +418,7 @@ if stage != 1:
 
     cmd += f'{py_args} -tracts {",".join(tracts)}'
     if argsa.savetxt:
-        cmd += f' -savetxt {argsa.savetxt}'
+        cmd += f' -savetxt'
     if distnorm:
         cmd += f' -distnorm {distnorm}'
     if argsa.prefix is not None:

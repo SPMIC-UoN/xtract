@@ -257,7 +257,7 @@ elif seed_type == 1:
     np.savetxt(new_fname_tord, tracts, fmt="%s")
 
     # if savetxt save blueprint as txt
-    if argsa.savetxt == 1:
+    if argsa.savetxt:
         new_fname = os.path.join(out_folder, f'{prefix}BP.LR.txt')
         np.savetxt(new_fname, BP)
     else:
