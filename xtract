@@ -253,11 +253,11 @@ if argsa.stdwarp is None:
 else:
     std2diff, diff2std = argsa.stdwarp[0], argsa.stdwarp[1]
 
-if imgtest(std2diff) == 0:
+if os.path.isfile(std2diff) == 0:
     print(f'std2diff {std2diff} not found.')
     errflag = 1
 
-if imgtest(diff2std) == 0:
+if os.path.isfile(diff2std) == 0:
     print(f'diff2std {diff2std} not found.')
     errflag = 1
 errchk(errflag)
@@ -270,10 +270,10 @@ if argsa.ref is not False:
     if imgtest(ref) == 0:
         print(f'ref {ref} not found.')
         errflag = 1
-    if imgtest(diff2ref) == 0:
+    if os.path.isfile(diff2ref) == 0:
         print(f'diff2ref {diff2ref} not found.')
         errflag = 1
-    if imgtest(ref2diff) == 0:
+    if os.path.isfile(ref2diff) == 0:
         print(f'ref2diff {ref2diff} not found.')
         errflag = 1
 errchk(errflag)
