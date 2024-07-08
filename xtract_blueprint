@@ -107,6 +107,7 @@ optional.add_argument("-version", dest='version', action="store_true", default=F
 if FSLINFMRIB is not None:
     hidden = parser.add_argument_group('Hidden arguments')
     hidden.add_argument("-dev_create", metavar='<path>', default=None, help="Path to development create_blueprint script (default=$FSLDIR/bin/create_blueprint)")
+    hidden.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
     hidden.add_argument("-submem", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
     hidden.add_argument("-subtime", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
     hidden.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
@@ -144,6 +145,9 @@ if FSLINFMRIB is not None:
 else:
     cbp_path = os.path.join(FSLbin, "create_blueprint")
     job_wait = None
+
+if FSLINFMRIB is None:
+    argsa.queue = None
 
 if FSLINFMRIB is not None:
     distnorm = argsa.distnorm
@@ -438,19 +442,37 @@ def run_job(command_file, out, step, jobID=''):
     if step == 1:
         if job_wait is None:
             if argsa.gpu:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
             else:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
         else:
             if argsa.gpu:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
             else:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
     elif step == 2:
         if jobID != '':
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            if argsa.queue is None:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            else:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
         else:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            if argsa.queue is None:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            else:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
     return JID.stdout.splitlines()[0]
 
 hq = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '--has_queues'], capture_output=True, text=True)
