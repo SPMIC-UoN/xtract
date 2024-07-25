@@ -110,6 +110,7 @@ subject_list = np.loadtxt(subject_list, dtype='str')
 if argsa.tract_list is not None:
     tracts = argsa.tract_list.split(',')
 else:
+    print(f'Getting tract list from default: {os.path.join(datadir, "HUMAN", "structureList")}')
     tracts = []
     with open(os.path.join(datadir, 'HUMAN', 'structureList')) as f:
         for line in f:
@@ -121,6 +122,9 @@ else:
 # dimensions of cohort
 nsubs = len(subject_list)
 ntracts = len(tracts)
+
+print(f'{nsubs} XTRACT directories in list')
+print(f'{ntracts} tracts')
 
 # function to get metrics
 def get_metrics(sub_path, sub_out, tracts, thr):
@@ -190,7 +194,8 @@ for idx in sub_missing:
     sub = subject_list[idx]
     n_missing = int(ntracts - sumcheck[idx])
     if n_missing < ntracts:
-        sub_missing_txt.append(f'{sub[0]} missing {n_missing} tracts')
+        filecheck = np.loadtxt(os.path.join(subject_list[idx], 'xtract_qc', 'filecheck'))
+        sub_missing_txt.append(f'{sub[0]} missing {n_missing} tracts: {[tracts[i[0]] for i in np.argwhere(filecheck == 0)]}')
     elif n_missing == ntracts:
         sub_missing_all_txt.append(f'{sub[0]} missing all tracts')
 
@@ -203,7 +208,7 @@ tract_success = (np.sum(filecheck_all.values, axis=0)/nsubs) * 100 # percent of 
 ps_inc = 0
 if sumcheck_all < 100:
     ps_inc = 1
-    tract_success = pd.DataFrame({'tracts': tracts, 'percent_successful':tract_success})
+    tract_success = pd.DataFrame({'tracts': tracts, 'percent_successful': tract_success})
     fig = px.line(tract_success, x=tracts, y="percent_successful",
         labels=dict(tracts="Tract", percent_successful="Percent successful (%)", )
         )
@@ -299,8 +304,9 @@ sub_zerowt_txt = []
 for idx in sub_ind_zerowt:
     sub = subject_list[idx]
     nempty = np.where(tract_waytotal_all.values[idx,:] == 0)[0].shape[0]
-    sub_zerowt_txt.append(f'{sub} has empty tracts files for {nempty}')
+    sub_zerowt_txt.append(f'{sub} has empty tracts files for {nempty}: {[tracts[i[0]] for i in np.argwhere(tract_waytotal_all.values[idx,:] == 0)]}')
 
+sub_zerowt_txt.append(f'Total: {len(sub_ind_zerowt)} subjects with empty tracts')
 
 # find outliers based on waytotal and volume
 # add here a string of subjects where their volume/waytotal is >2*std away from mean
@@ -386,7 +392,6 @@ with open(filename, 'w') as fh:
         sub_extreme_outliers_txt = sub_extreme_outliers_txt,
         ps_inc = ps_inc
         ))
-
 
 print(f'Report generated\nSee {os.path.join(out, "qc_report.html")}')
 quit()

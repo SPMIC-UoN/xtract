@@ -1,0 +1,121 @@
+#!/usr/bin/env fslpython
+
+import sys,os,glob,subprocess,re,shutil,tempfile
+import argparse,textwrap
+from tqdm import tqdm 
+
+import numpy as np
+
+FSLDIR = os.getenv('FSLDIR')
+FSLbin = os.path.join(FSLDIR, 'bin')
+
+def errchk(errflag):
+    if errflag:
+        print("Exit without doing anything..")
+        quit()
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
+class Usage(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+parser = MyParser(prog='Part of xtract_blueprint: script to make subcortical blueprints (before feeding to create_bleuprint)')
+
+# Compulsory arguments:
+parser.add_argument("-xtract_folder", metavar='<folder>', help="Path to xtract folder", required=True)
+parser.add_argument("-out_folder", metavar='<folder>', help="Path to output folder", required=True)
+parser.add_argument("-subseed", metavar='<subseed.txt>', help="Text file containing line separated list of subcortical seeds", required=True)
+parser.add_argument("-interp", metavar='<str>', default='trilinear', choices=['trilinear', 'enclosing', 'cubic'], help="Interpolation method used in surface projection (default = trilinear)")
+parser.add_argument("-thr", metavar='<float>', default=0, help="Tract threshold to apply (default = None)")
+parser.add_argument("-tracts", metavar='<list>', help="Comma separated list of tracts to include", required=True)
+parser.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
+
+argsa = parser.parse_args()
+
+xtract = argsa.xtract_folder
+out = argsa.out_folder
+subseed = argsa.subseed
+thr = argsa.thr
+tracts = argsa.tracts.split(",")
+
+errflag = 0
+# get the subcortical structures
+if os.path.isfile(argsa.subseed) == False:
+    print(f'Subcortical seed file {argsa.subseed} not found.')
+    errflag = 1
+else:
+    print('Creating subcortical blueprint...')
+errchk(errflag)
+
+# load subseed list and clean it
+subseed_list = open(argsa.subseed, "r") 
+subseed_list = subseed_list.read().split("\n")
+subseed_list = list(filter(None, subseed_list))
+
+out_temp = os.path.join(out, 'temp_xtract')
+os.makedirs(out_temp, exist_ok=True)
+
+print(f'Preparing subcortical blueprint with {len(tracts)} tracts...')
+# do we need to resample tracts?
+targ_form = subprocess.run([os.path.join(FSLbin, 'fslorient'), '-getsform', subseed_list[0]], capture_output=True)
+tract_form = subprocess.run([os.path.join(FSLbin, 'fslorient'), '-getsform', os.path.join(xtract, 'tracts', tracts[0], 'densityNorm.nii.gz')], capture_output=True)
+if targ_form.stdout != tract_form.stdout:
+    print('XTRACT resolution different from subcortical structures')
+    print(f'Resampling xtract tracts...')
+    tres = subprocess.run([os.path.join(FSLbin, 'fslval'), subseed_list[0], 'pixdim1'], capture_output=True)
+    tres = str(tres.stdout).split("'")[1].split(' ')[0]
+    for t in tqdm(tracts):
+        foo = subprocess.run([os.path.join(FSLbin, "flirt"), '-in', os.path.join(xtract, "tracts", t, "densityNorm.nii.gz"), '-out', os.path.join(out_temp, t), '-ref', subseed_list[0], '-applyisoxfm', str(tres), '-interp', 'trilinear'], capture_output=True)
+else:
+    for t in tracts:
+        subprocess.run(['cp', os.path.join(xtract, "tracts", t, "densityNorm.nii.gz"), os.path.join(out_temp, f'{t}.nii.gz')])
+
+if float(argsa.thr) > 0:
+    print('Thresholding tracts...')
+    for t in tqdm(tracts):
+        foo = subprocess.run([os.path.join(FSLbin, "fslmaths"), os.path.join(out_temp, t), '-thr', str(argsa.thr), os.path.join(out_temp, t)])
+
+# combine subcortical structures for quick multiplication
+fslcmd = [os.path.join(FSLbin, "fslmaths")]
+for i, substruct in enumerate(subseed_list):
+    if i == 0:
+        fslcmd.append(substruct)
+    else:
+        fslcmd.append('-add')
+        fslcmd.append(substruct)
+
+fslcmd.append('-bin')
+fslcmd.append(os.path.join(out_temp, "all_structures"))
+foo = subprocess.run(fslcmd)
+
+print('Generating tract-wise blueprints...')
+fslcmd = [os.path.join(FSLbin, "fslmerge"), '-t', os.path.join(out, "all_structures_all_tracts")]
+for t in tqdm(tracts):
+    fslcmd.append(os.path.join(out_temp, f'{t}_bp'))
+    foo = subprocess.run([os.path.join(FSLbin, "fslmaths"), os.path.join(out_temp, "all_structures"), "-mul", os.path.join(out_temp, t), os.path.join(out_temp, f'{t}_bp')])
+
+foo = subprocess.run(fslcmd)
+
+# print the number of voxels in each structure to a text file
+subseed_voxnum_list = os.path.join(out, 'VoxNum_Subcort_ROIs')
+try:
+    os.remove(subseed_voxnum_list)
+except OSError:
+    pass
+
+for i, substruct in enumerate(subseed_list):
+    nvox = subprocess.run([os.path.join(FSLbin, 'fslstats'), substruct, '-V'], capture_output=True, text=True)
+    nvox = nvox.stdout.split(' ')[0]
+    with open(subseed_voxnum_list, 'a') as f:
+        print(f'{substruct} {nvox}', file=f)
+
+if argsa.keepfiles is False:
+    foo = subprocess.run(['rm', '-rf', out_temp])
+
+print('Subcortical blueprint ready for remaining processing!')
+quit()

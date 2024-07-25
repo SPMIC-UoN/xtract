@@ -107,6 +107,8 @@ optional.add_argument("-version", dest='version', action="store_true", default=F
 if FSLINFMRIB is not None:
     hidden = parser.add_argument_group('Hidden arguments')
     hidden.add_argument("-dev_create", metavar='<path>', default=None, help="Path to development create_blueprint script (default=$FSLDIR/bin/create_blueprint)")
+    hidden.add_argument("-dev_subcort", metavar='<path>', default=None, help="Path to development make_subcort_bp script (default=$FSLDIR/bin/make_subcort_bp)")
+    hidden.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
     hidden.add_argument("-submem", metavar='<int>', nargs=2, type=int, help="Memory (GB) requested for tracking and blueprinting cluster jobs (default=[40 100])")
     hidden.add_argument("-subtime", metavar='<int>', nargs=2, type=int, help="Time (minutes) requested for tracking and blueprinting cluster jobs (default=300 for both jobs, 1440 for tracking if not GPU)")
     hidden.add_argument("-distnorm", action="store_true", default=False, help="Distance normalisation in matrix2 tracking? (default=False)")
@@ -140,10 +142,18 @@ if FSLINFMRIB is not None:
     else:
         cbp_path = argsa.dev_create
         print(f'create_blueprint path is: {cbp_path}')
+    if argsa.dev_subcort is None:
+        subcort_path = os.path.join(FSLbin, "make_subcort_bp")
+    else:
+        subcort_path = argsa.dev_subcort
+        print(f'make_subcort_bp path is: {subcort_path}')
     job_wait = argsa.job_wait
 else:
     cbp_path = os.path.join(FSLbin, "create_blueprint")
     job_wait = None
+
+if FSLINFMRIB is None:
+    argsa.queue = None
 
 if FSLINFMRIB is not None:
     distnorm = argsa.distnorm
@@ -191,7 +201,6 @@ elif native is True and argsa.warps[0] is None:
     print("Creating blueprint in native space")
 errchk(errflag)
 
-
 # check optional arguments
 nseeds = len(seeds)
 nrois, nwaypoints = 0, 0
@@ -222,6 +231,7 @@ if argsa.subseed is not None:
         errflag = 1
     if nseeds == 2:
         seeds.append(argsa.subseed)
+        foo = 0
     elif nseeds != 2:
         print('Using subcortical seed but only one surface seed')
         print('Subcortical seeding is currently limited to two surface seeds (whole-brain/two hemispheres)')
@@ -263,7 +273,6 @@ else:
         submem = [40, 100]
         subtime = [1440, 300]
 
-
 additional_opts = ''
 if argsa.ptx_options:
     f = open(argsa.ptx_options, "r")
@@ -279,7 +288,6 @@ elif stage == 2:
     print('Running blueprint processing only')
 elif stage == 0:
     print('Running tractography and blueprint processing')
-
 
 # make output directories
 if out is None:
@@ -322,18 +330,18 @@ if stage != 2:
         os.remove(commands_1)
     except OSError:
         pass
-    
+
     working_dirs = []
     for COUNTER, seed in enumerate(seeds):
         r = remove_ext(os.path.basename(seed))
         print(f'\nSeed {COUNTER+1}:')
         print(f'seed {r}', end="")
-        working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
-        os.makedirs(working_dirs[COUNTER], exist_ok=True)
-
-        s = seed
-        # if the seed is not nifti, i.e. not volume/subcortical
+        
         if seed is not argsa.subseed:
+            working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
+            os.makedirs(working_dirs[COUNTER], exist_ok=True)
+
+            s = seed
             # convert gii to ascii with medial wall, if using
             if nrois != 0:
                 roi = rois[COUNTER]
@@ -342,38 +350,48 @@ if stage != 2:
                 m = remove_ext(os.path.basename(roi))
                 print(f': medial wall/ROI {m}', end="")
 
-        hemi_opts = f'{ptxopts} --seed={s} --dir={working_dirs[COUNTER]}'
-        # hemi_opts = f'{ptxopts} --seed={seed} --dir={working_dir}'
+            hemi_opts = f'{ptxopts} --seed={s} --dir={working_dirs[COUNTER]}'
+            # hemi_opts = f'{ptxopts} --seed={seed} --dir={working_dir}'
+                    
+            # if nwaypoints > 0:
+            #     waypoint = waypoints[COUNTER]
+            #     m = remove_ext(os.path.basename(waypoint))
+            #     print(f': waypoint {m}', end="")
+            #     hemi_opts += f' --waypoints={waypoint}'
                 
-        # if nwaypoints > 0:
-        #     waypoint = waypoints[COUNTER]
-        #     m = remove_ext(os.path.basename(waypoint))
-        #     print(f': waypoint {m}', end="")
-        #     hemi_opts += f' --waypoints={waypoint}'
+            if argsa.stops is not None:
+                m = remove_ext(os.path.basename(stops))
+                print(f': stop {m}', end="")
+                hemi_opts += f' --stop={stops}'
+            if argsa.wtstops is not None:
+                m = remove_ext(os.path.basename(wtstops))
+                print(f': wtstop {m}', end="")
+                hemi_opts += f' --wtstop={wtstops}'
+            if argsa.exclusion is not None:
+                m = remove_ext(os.path.basename(exclusion))
+                print(f': exclusion {m}', end="")
+                hemi_opts += f' --avoid={exclusion}'
             
-        if argsa.stops is not None:
-            m = remove_ext(os.path.basename(stops))
-            print(f': stop {m}', end="")
-            hemi_opts += f' --stop={stops}'
-        if argsa.wtstops is not None:
-            m = remove_ext(os.path.basename(wtstops))
-            print(f': wtstop {m}', end="")
-            hemi_opts += f' --wtstop={wtstops}'
-        if argsa.exclusion is not None:
-            m = remove_ext(os.path.basename(exclusion))
-            print(f': exclusion {m}', end="")
-            hemi_opts += f' --avoid={exclusion}'
+            print('')
+            # append extra options and save to commands file
+            hemi_opts += f' {additional_opts}'
+            
+            with open(commands_1, 'a') as f:
+                print(f'{ptxbin} {hemi_opts};', file=f)
         
-        print('')
-        
-        # append extra options and save to commands file
-        hemi_opts += f' {additional_opts}'
-        
-        with open(commands_1, 'a') as f:
-            print(f'{ptxbin} {hemi_opts};', file=f)
+        elif seed is argsa.subseed:
+            working_dirs.append(os.path.join(out, 'omatrix2', 'subcortical'))
+            os.makedirs(working_dirs[COUNTER], exist_ok=True)
+            # call make_subcort_bp
+            if argsa.keepfiles is False:
+                cmd = f' {subcort_path} -xtract_folder {xtract} -out {working_dirs[COUNTER]} -subseed {seed} -tracts {",".join(tracts)} -thr {argsa.thr}'
+            else:
+                cmd = f' {subcort_path} -xtract_folder {xtract} -out {working_dirs[COUNTER]} -subseed {seed} -tracts {",".join(tracts)} -thr {argsa.thr} -keepfiles'
 
-    subprocess.run(['chmod', '+x', commands_1]);
+            with open(commands_1, 'a') as f:
+                print(f'{cmd};', file=f)
     
+    subprocess.run(['chmod', '+x', commands_1]);
 
 # Step 2 : Resample xtract, load all xtract thingies and matrix2 output and multiply them        
 if stage != 1:
@@ -403,15 +421,18 @@ if stage != 1:
             
     # loop through seeds and prepare commands
     # start of python command
-    cmd += f' {cbp_path} -xtract_folder {os.path.join(out, "temp_xtract")}'
+    cmd += f' {cbp_path} -xtract_folder {os.path.join(out, "temp_xtract")} -thr {argsa.thr}'
     
     working_dirs = []
     for seed in seeds:
-        r = remove_ext(os.path.basename(seed))
-        working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
+        if seed is not argsa.subseed:
+            r = remove_ext(os.path.basename(seed))
+            working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
+        elif seed is argsa.subseed:
+            working_dirs.append(os.path.join(out, 'omatrix2', 'subcortical'))
 
     py_args = f' -ptx_folder {",".join(working_dirs)}'
-    py_args = f'{py_args} -seed_path {",".join(seeds)}'
+    py_args = f'{py_args} -seed_path {",".join(seeds)}' 
 
     if nrois != 0:
         py_args = f'{py_args} -roi_path {",".join(rois)}'
@@ -423,9 +444,9 @@ if stage != 1:
         cmd += f' -distnorm {distnorm}'
     if argsa.prefix is not None:
         cmd += f' -prefix {argsa.prefix}'
-    if argsa.keepfiles is True:
+    if argsa.keepfiles is False:
         cmd += f'; rm -rf {os.path.join(out, "temp_xtract")}'
-        
+    
     with open(commands_2, 'a') as f:
         print(f'{cmd}', file=f)
     subprocess.run(['chmod', '+x', commands_2]);
@@ -438,19 +459,37 @@ def run_job(command_file, out, step, jobID=''):
     if step == 1:
         if job_wait is None:
             if argsa.gpu:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
             else:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
         else:
             if argsa.gpu:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '--coprocessor=cuda', '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
             else:
-                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                if argsa.queue is None:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
+                else:
+                    JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[0]), '-R', str(submem[0]), '-j', job_wait, '-l', os.path.join(out, "logs"), '-N', 'blueprint_track', '-t', command_file], capture_output=True, text=True)
     elif step == 2:
         if jobID != '':
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            if argsa.queue is None:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            else:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[1]), '-R', str(submem[1]), '-j', jobID, '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
         else:
-            JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            if argsa.queue is None:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
+            else:
+                JID = subprocess.run([os.path.join(FSLbin, 'fsl_sub'),'-q', argsa.queue, '-T', str(subtime[1]), '-R', str(submem[1]), '-l', os.path.join(out, "logs"), '-N', 'create_blueprint', 'sh', command_file], capture_output=True, text=True)
     return JID.stdout.splitlines()[0]
 
 hq = subprocess.run([os.path.join(FSLbin, 'fsl_sub'), '--has_queues'], capture_output=True, text=True)
@@ -474,4 +513,5 @@ else:
     else:
         subprocess.run([commands_1], shell=True)
         subprocess.run([commands_2], shell=True)
+
 quit()
