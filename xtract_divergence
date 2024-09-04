@@ -87,7 +87,7 @@ def fix_tract_list(bp, bp_info, tract_list):
     for i, str in enumerate(new_tract_list):
         old_ind = bp_info.tracts.index(str)
         new_bp[i, :] = bp[old_ind, :]
-    new_bp = normalise(new_bp) # re-normalise blueprint
+    new_bp = normalise(new_bp.T).T # re-normalise blueprint
     new_bp_info = deepcopy(bp_info)
     new_bp_info.tracts = new_tract_list
     return new_bp, new_bp_info
