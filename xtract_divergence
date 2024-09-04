@@ -87,7 +87,7 @@ def fix_tract_list(bp, bp_info, tract_list):
     for i, str in enumerate(new_tract_list):
         old_ind = bp_info.tracts.index(str)
         new_bp[i, :] = bp[old_ind, :]
-    new_bp = normalise(new_bp) # re-normalise blueprint
+    new_bp = normalise(new_bp.T).T # re-normalise blueprint
     new_bp_info = deepcopy(bp_info)
     new_bp_info.tracts = new_tract_list
     return new_bp, new_bp_info
@@ -155,6 +155,21 @@ def div_singleGO(bp1, bp2, template_cii, mask, outname=None, measure='KLD', coor
             new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
             cii_new = nib.cifti2.Cifti2Image(D.reshape(1, -1), new_h)
             nib.save(cii_new, outname)
+    elif measure == 'KLDscipy':
+        print('Calculating KL divergence (*scipy version*) for whole-brain using a single core... this takes a moment')
+        epsilon = 1e-10  # Small value to avoid division by zero
+        bp1_shift = bp1 + epsilon
+        bp2_shift = bp2 + epsilon
+        D = np.zeros((bp1.shape[1], bp2.shape[1]))
+        for i in range(0, bp1.shape[1]):
+                D[i,:] = 0.5*(scipy.stats.entropy(bp1_shift[:, i].reshape(-1, 1), bp2_shift, base=2, axis=0) + scipy.stats.entropy(bp2_shift, bp1_shift[:, i].reshape(-1, 1), base=2, axis=0))
+        D[:, mask == 0] = 0
+        if outname is not None:
+            ax_0 = nib.cifti2.ScalarAxis(['KLDscipy'])
+            ax_1 = template_cii.header.get_axis(1)
+            new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
+            cii_new = nib.cifti2.Cifti2Image(D.reshape(1, -1), new_h)
+            nib.save(cii_new, outname)
     return D
 
 def div_wholebrain(bp1, bp2, template_cii, mask, outname=None, measure='KLD', num_cores=1):
@@ -182,6 +197,14 @@ def div_wholebrain(bp1, bp2, template_cii, mask, outname=None, measure='KLD', nu
             D[i, :] = JSD(bp1[:, i].reshape(-1, 1), bp2)
         Parallel(n_jobs=num_cores)(delayed(compute_and_update)(i) for i in range(0, bp1.shape[1]))
         D[:, mask == 0] = 0
+    elif measure == 'KLDscipy' and num_cores == 1:
+        print('Calculating KL divergence (*scipy version*) for whole-brain using a single core... this takes a moment')
+        epsilon = 1e-10  # Small value to avoid division by zero
+        bp1_shift = bp1 + epsilon
+        bp2_shift = bp2 + epsilon
+        D = np.zeros((bp1.shape[1], bp2.shape[1]))
+        for i in range(0, bp1.shape[1]):
+                D[i,:] = 0.5*(scipy.stats.entropy(bp1_shift[:, i].reshape(-1, 1), bp2_shift, base=2, axis=0) + scipy.stats.entropy(bp2_shift, bp1_shift[:, i].reshape(-1, 1), base=2, axis=0))
     end = time.time()
     print(f'Time taken: {end - start:.2f}s')
     if outname is not None:
@@ -257,7 +280,7 @@ required.add_argument("-out", metavar='<folder>', required=True, help="Path to o
 required.add_argument("-masksa", metavar='<GIFTI>', nargs=2, dest='maskaLR_path', required=True, help="Path to GIFTI cortical left/right ROIs (excluding medial wall) of the base blueprint")
 required.add_argument("-masksb", metavar='<GIFTI>', nargs=2, dest='maskbLR_path', required=True, help="Path to GIFTI cortical left/right ROIs (excluding medial wall) of the target blueprint")
 
-optional.add_argument("-metric", metavar='<str>', choices=['KLD', 'KLD_bias', 'JSD'], default='KLD', help="Kullback-Liebler (well-behaved KLD with additional processing, default option), KLD (no additional processing, KLD_bias), or Jenson-Shannon (JSD) divergence")
+optional.add_argument("-metric", metavar='<str>', choices=['KLD', 'KLD_bias', 'JSD', 'KLDscipy'], default='KLD', help="Kullback-Liebler (well-behaved KLD with additional processing, default option), KLD (no additional processing, KLD_bias), Jenson-Shannon (JSD) divergence, or KLD (scipy implementation)")
 optional.add_argument("-roi", metavar='<path,<int>,[<int>,<int>,<int>],<str>', help="ROI or greyordinate coordinates (vertex index or voxel ijk indices) or CIFTI structure to calculate divergence wrt whole-brain. '-roi' requires '-hemi' to be defined.")
 optional.add_argument("-base_scalars", metavar='<GIFTI>', nargs=2, dest='source_maps', help="The scalar maps (left/right GIFTIs) to translate between brains")
 optional.add_argument("-target_scalars", metavar='<GIFTI>', nargs=2, dest='target_maps', help="Scalar maps (left/right GIFTIs) in the target space")
