@@ -501,7 +501,7 @@ elif cmode == 'translate':
     tempmask = maskb[b_nvert_l:bpb_info.nvert]
     map_pred_r[tempmask == 0] = 0
     template_surf = nib.load(target_maps[1])
-    save_surf(map_pred_l, os.path.join(out, f'{names[0]}_to_{names[1]}_scalar_prediction_{metric}'), template_surf, 'R')
+    save_surf(map_pred_r, os.path.join(out, f'{names[0]}_to_{names[1]}_scalar_prediction_{metric}'), template_surf, 'R')
 elif cmode == 'wb_div':
     foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_{metric}.dscalar.nii')
     div = div_wholebrain(temp_bpa, temp_bpb, bpb, maskb, measure=metric, num_cores=argsa.ncores, outname=foutname)
