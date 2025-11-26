@@ -122,6 +122,7 @@ optional.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <
 
 # Optional space arguments:
 optional.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
+optional.add_argument("-in_native", action="store_true", default=False, help="Protocol masks are already in native (diffusion) space")
 optional.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<refimage> <diff2ref> <ref2diff> Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms")
 
 # Optional tracking/computing arguments:
@@ -211,11 +212,12 @@ elif spec == 'HUMAN_BABY':
     else:
         stdref = argsa.stdref
 elif spec == 'CUSTOM':
-    if argsa.stdref is None:
-        print("If -species CUSTOM, must set argument '-stdref'")
-        errflag = 1
-    else:
-        stdref = argsa.stdref
+    if argsa.in_native is False:
+        if argsa.stdref is None:
+            print("If -species CUSTOM and not in_native, must set argument '-stdref'")
+            errflag = 1
+        else:
+            stdref = argsa.stdref
     if argsa.p is None:
         print("If -species CUSTOM, must set argument '-p'")
         errflag = 1
@@ -228,9 +230,10 @@ elif spec == 'CUSTOM':
         structureList = argsa.structureList
 errchk(errflag)
 
-if imgtest(stdref) == 0:
-    print(f"Standard space reference image '-stdref' {stdref} not found")
-    errflag = 1
+if argsa.in_native is False:
+    if imgtest(stdref) == 0:
+        print(f"Standard space reference image '-stdref' {stdref} not found")
+        errflag = 1
 
 if not os.path.isdir(p):
     print(f"Protocol folder {p} not found")
@@ -243,7 +246,7 @@ errchk(errflag)
 
 # check optional arguments and set defaults
 # default warps: <std2diff> <diff2std>
-if argsa.stdwarp is None:
+if argsa.stdwarp is None and argsa.in_native is False:
     # or standard2diff.nii.gz (and vice versa)
     for std2diff in [os.path.join(bpx, 'xfms', 'standard2diff_warp.nii.gz'), os.path.join(bpx, 'xfms', 'standard2diff.nii.gz')]:
         if imgtest(std2diff) == 1:
@@ -251,16 +254,18 @@ if argsa.stdwarp is None:
     for diff2std in [os.path.join(bpx, 'xfms', 'diff2standard_warp.nii.gz'), os.path.join(bpx, 'xfms', 'diff2standard.nii.gz')]:
         if imgtest(diff2std) == 1:
             break
+elif argsa.in_native:
+    std2diff, diff2std = None, None
 else:
     std2diff, diff2std = argsa.stdwarp[0], argsa.stdwarp[1]
 
-if os.path.isfile(std2diff) == 0:
-    print(f'std2diff {std2diff} not found.')
-    errflag = 1
-
-if os.path.isfile(diff2std) == 0:
-    print(f'diff2std {diff2std} not found.')
-    errflag = 1
+if argsa.in_native is False:
+    if os.path.isfile(std2diff) == 0 and argsa.in_native is False:
+        print(f'std2diff {std2diff} not found.')
+        errflag = 1
+    if os.path.isfile(diff2std) == 0 and argsa.in_native is False:
+        print(f'diff2std {diff2std} not found.')
+        errflag = 1
 errchk(errflag)
 
 # reference warps (if using): <refimage> <diff2ref> <ref2diff>
@@ -319,9 +324,9 @@ if 'randfib' not in ptx_opts:
     opts += " --randfib=1"
 
 # space options
-if not argsa.native and argsa.ref is False:
+if not argsa.native and argsa.ref is False and argsa.in_native is False:
     opts += f" --seedref={stdref} --xfm={std2diff} --invxfm={diff2std} "
-elif argsa.ref:
+elif argsa.ref and argsa.in_native is False:
     opts += f" --seedref={ref} --xfm={ref2diff} --invxfm={diff2ref} "
 
 if argsa.ref is not False:
@@ -368,7 +373,7 @@ for struct, nseed in structure_arr:
     #  DEALING WITH RESAMPLING --
     # Pick space to run tractography in (diffusion or standard)
     maskout = os.path.join(out, 'masks', struct) # only used if not standard
-    if argsa.native:
+    if argsa.native and argsa.in_native is False:
         print(f"{struct} -- transforming masks into native space")
         os.makedirs(maskout, exist_ok=True)
         maskdict = warp_masks_to_space(nodif_bm, std2diff, maskdict, interp)
@@ -376,6 +381,10 @@ for struct, nseed in structure_arr:
         print(f"{struct} -- transforming masks into ref space")
         os.makedirs(maskout, exist_ok=True)
         maskdict = warp_masks_to_space(ref, std2ref, maskdict, interp)
+    elif argsa.in_native is not False:
+        for m in ["seed", "stop", "exclude"]:
+            maskimg = os.path.join(maskdir, f"{m}.nii.gz")
+            maskdict[m] = maskimg
     else:
         for m in ['seed', 'stop', 'exclude']:
             maskimg = os.path.join(maskdir, f'{m}.nii.gz')
@@ -396,7 +405,7 @@ for struct, nseed in structure_arr:
     except OSError:
         pass
     
-    if argsa.native:
+    if argsa.native and argsa.in_native is False:
         for tfile in targets:
             t = os.path.join(maskout, os.path.basename(tfile))
             applywarp(tfile, t, nodif_bm, std2diff, 'float', interp)
@@ -410,6 +419,10 @@ for struct, nseed in structure_arr:
         with open(targetfile, 'w') as f:
             print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)
         maskdict['target'] = targetfile
+    elif argsa.in_native is not False:
+        with open(targetfile, "w") as f:
+            print(*targets, file=f)
+        maskdict["target"] = targetfile
     else:
         if res > 0:
             for tfile in targets:
