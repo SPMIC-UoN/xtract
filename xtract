@@ -397,40 +397,49 @@ for struct, nseed in structure_arr:
                 maskdict[m] = maskimg
 
     # Deal with targets (in cases where there may be more than one)
-    targets = glob.glob(os.path.join(maskdir, 'target*.nii.gz'))
-    targets.sort()
+    targets = sorted(glob.glob(os.path.join(maskdir, 'target*.nii.gz')))
     targetfile = os.path.join(out, 'tracts', struct, 'targets.txt')
+
     try:
         os.remove(targetfile)
     except OSError:
         pass
-    
+
     if argsa.native and argsa.in_native is False:
+        transformed_targets = []
         for tfile in targets:
             t = os.path.join(maskout, os.path.basename(tfile))
             applywarp(tfile, t, nodif_bm, std2diff, 'float', interp)
+            transformed_targets.append(t)
         with open(targetfile, 'w') as f:
-            print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)
+            print(*transformed_targets, file=f)
         maskdict['target'] = targetfile
+
     elif argsa.ref is not False:
+        transformed_targets = []
         for tfile in targets:
             t = os.path.join(maskout, os.path.basename(tfile))
             applywarp(tfile, t, ref, std2ref, 'float', interp)
+            transformed_targets.append(t)
         with open(targetfile, 'w') as f:
-            print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)
+            print(*transformed_targets, file=f)
         maskdict['target'] = targetfile
+
     elif argsa.in_native is not False:
         with open(targetfile, "w") as f:
             print(*targets, file=f)
         maskdict["target"] = targetfile
+
     else:
         if res > 0:
+            transformed_targets = []
             for tfile in targets:
                 t = os.path.join(maskout, os.path.basename(tfile))
                 applyisoxfm(tfile, t, res, tfile, interp)
+                transformed_targets.append(t)
             with open(targetfile, 'w') as f:
-                print(*glob.glob(os.path.join(maskout, 'target*.nii.gz')), file=f)  
-            maskdict['target'] = targetfile              
+                print(*transformed_targets, file=f)
+            maskdict['target'] = targetfile
         else:
             with open(targetfile, 'w') as f:
                 print(*targets, file=f)
@@ -462,11 +471,7 @@ for struct, nseed in structure_arr:
         os.makedirs(structdir_inv, exist_ok=True)
         
         # invert targets/seed
-        if argsa.native:
-            targets_inv = open(targetfile, "r").read().rstrip().split('\n')
-        else:
-            targets_inv = targets.copy()
-        
+        targets_inv = open(targetfile, "r").read().rstrip().split('\n')
         targets_inv.reverse()
         targets_inv.append(maskdict["seed"])
         seed_inv = targets_inv.pop(0)
