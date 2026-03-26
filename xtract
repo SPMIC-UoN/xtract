@@ -63,10 +63,7 @@ def chk_ptr_str(sp):
     return p, structureList
 
 def print_tract_list(spec):
-    if spec == 'MACAQUE' or spec == 'MACAQUE_F99':
-        pfile = os.path.join(datadir, 'MACAQUE', 'structureList')
-    else:
-        pfile = os.path.join(datadir, spec, 'structureList')
+    pfile = os.path.join(datadir, spec, 'structureList')
     print('\nTract Names:')
     tract_names = ''
     with open(pfile) as f:
@@ -119,6 +116,7 @@ optional.add_argument("-str", metavar='<file>', dest='structureList', help="Stru
 optional.add_argument("-p", metavar='<folder>', help=f"Protocols folder (all masks in same standard space) (Default={os.path.join(FSLDIR, 'data', 'xtract_data', '<SPECIES>')})")
 optional.add_argument("-stdref", metavar='<reference>', help=f"Standard space reference image (Default = {os.path.join(FSLDIR, 'data', 'standard', 'MNI152_T1_1mm [HUMAN]')}, {os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain [MACAQUE]')}, {os.path.join(datadir, 'standard', 'neonate', 'mri', 'schuh_template [HUMAN_BABY]')}")
 optional.add_argument("-stdwarp", metavar='<path>', nargs=2, help=f"<std2diff> <diff2std> Non-linear Standard2diff and Diff2standard transforms (Default={os.path.join('bedpostx_dir', 'xfms', '{standard2diff_warp.nii.gz,diff2standard_warp.nii.gz}')})")
+optional.add_argument("-mac_ext", metavar='<str>', choices=['F99', 'D99', 'INIA', 'NMT', 'YRK'], default=None, help="Macaque template extension (default F99)")
 
 # Optional space arguments:
 optional.add_argument("-native", action="store_true", default=False, help="Run tractography in native (diffusion) space")
@@ -137,7 +135,6 @@ optional.add_argument("-version", dest='version', action="store_true", default=F
 if FSLINFMRIB is not None:
     hidden = parser.add_argument_group('Hidden arguments')
     hidden.add_argument("-queue", metavar='<str>', default=None, help="For job schedulers, specify the queue fsl_sub submits to")
-    hidden.add_argument("-mac_ext", metavar='<str>', choices=['_F99', '_D99', '_INIA', '_NMT', '_YRK'], default=None, help="Macaque template extension")
 
 argsa = parser.parse_args()
 
@@ -153,14 +150,6 @@ if argsa.version:
     verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
     print('\n')
 
-# if print_tract_list, then print and quit
-if argsa.print_list and (argsa.species is None):
-    parser.error("-print_list requires -species\n") 
-elif argsa.print_list:
-    print_tract_list(argsa.species)
-elif argsa.bpx is None or (argsa.species is None) or (argsa.out is None):
-    parser.error("-bpx, -out and -species are compulsory arguments\n")
-
 # rename compulsory arguments for ease
 bpx = argsa.bpx
 out = argsa.out
@@ -169,14 +158,22 @@ res = argsa.res
 interp = argsa.interp
 errflag = 0
 
-if FSLINFMRIB is not None and argsa.mac_ext is not None:
+if argsa.mac_ext is not None:
     if spec != 'MACAQUE':
         print(f'Error: `-species` is set to {spec} but you have specified `-mac_ext`')
         print('Error: `-species` must be MACAQUE to use `-mac_ext`')
         errflag = 1
         errchk(errflag)
-    else:
-        spec = spec + argsa.mac_ext
+    elif argsa.mac_ext != "F99":
+        spec = spec + '_' + argsa.mac_ext
+
+# if print_tract_list, then print and quit
+if argsa.print_list and (spec is None):
+    parser.error("-print_list requires -species\n") 
+elif argsa.print_list:
+    print_tract_list(spec)
+elif argsa.bpx is None or (spec is None) or (out is None):
+    parser.error("-bpx, -out and -species are compulsory arguments\n")
             
 # check compulsory arguments
 if not os.path.isdir(bpx):
@@ -196,7 +193,7 @@ if spec == 'HUMAN':
     else:
         stdref = argsa.stdref
 elif 'MACAQUE' in spec:
-    if spec == 'MACAQUE' or spec == 'MACAQUE_F99':
+    if spec == 'MACAQUE':
         if argsa.stdref is None:
             stdref = os.path.join(datadir, 'standard', 'F99', 'mri', 'struct_brain')
         else:
@@ -229,6 +226,10 @@ elif spec == 'CUSTOM':
     else:
         structureList = argsa.structureList
 errchk(errflag)
+
+if spec not in ['HUMAN', 'CUSTOM', 'MACAQUE', 'MACAQUE_NMT']:
+    print(f'WARNING: the extended set of subcortical tracts (Assimopoulos et al., 2025, eLife) is not available for {spec}')
+    print('Only the tracts available in the selected protocol will be reconstructed.')
 
 if argsa.in_native is False:
     if imgtest(stdref) == 0:
@@ -358,7 +359,7 @@ if argsa.tract_list is not None:
         if len(idx) != 1:
             print(f'Tract "{t}" not found in structureList {structureList}')
             print('Tract names must follow the xtract naming convention')
-            print_tract_list(argsa.species)
+            print_tract_list(spec)
         else:
             structure_arr_reduced.append([structure_arr[idx[0]][0], structure_arr[idx[0]][1]])
     structure_arr = structure_arr_reduced
