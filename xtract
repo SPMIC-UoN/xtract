@@ -33,10 +33,10 @@ def applywarp(fin, out, ref, warp, dtype, interp):
 
 def applyisoxfm(fin, out, res, refimg, interp):
     if interp == 'tri':
-        subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp trilinear'])
+        subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp', 'trilinear'])
         subprocess.run([os.path.join(FSLbin, 'fslmaths'), out, '-thr', str(0.1), '-bin', out, '-odt', 'char'])
     else:
-        subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp nearestneighbour'])
+        subprocess.run([os.path.join(FSLbin, 'flirt'), '-in', fin, '-out', out, '-applyisoxfm', str(res), '-ref', refimg, '-interp', 'nearestneighbour'])
 
 def warp_masks_to_space(refimg, warp, maskdict, interp):
     for m in ['seed', 'stop', 'exclude']:
@@ -124,7 +124,7 @@ optional.add_argument("-in_native", action="store_true", default=False, help="Pr
 optional.add_argument("-ref", metavar='<path>', default=False, nargs=3, help="<refimage> <diff2ref> <ref2diff> Reference image for running tractography in reference space, Diff2Reference and Reference2Diff transforms")
 
 # Optional tracking/computing arguments:
-optional.add_argument("-res", metavar='<mm>', default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
+optional.add_argument("-res", metavar='<mm>', type=float, default=0, help="Output resolution (Default=same as in protocol folders unless '-native' used)")
 optional.add_argument("-ptx_options", metavar='<file>', help="Pass extra probtrackx2 options as a text file to override defaults, e.g. --steplength=0.2 --distthresh=10)")
 optional.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default='nn', help="If native/ref: default interpolation of protocol ROIs is nearest neighbour ('nn', since vXXX). For backwards compatability, trilinear plus thresholding ('tri') is available")
 optional.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
@@ -392,7 +392,7 @@ for struct, nseed in structure_arr:
             if res > 0:
                 os.makedirs(maskout, exist_ok=True)
                 if imgtest(maskimg):
-                    applyisoxfm(maskimg, os.path.join(maskout, m), res, maskimg)
+                    applyisoxfm(maskimg, os.path.join(maskout, m), res, maskimg, interp)
                 maskdict[m] = os.path.join(maskout, m)
             else:
                 maskdict[m] = maskimg
