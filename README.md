@@ -25,6 +25,14 @@ The XTRACT QC helper script was written by Shaun Warrington
 
 The XTRACT divergence script was written by Shaun Warrington and Stephania Assimopoulos
 
+XTRACT also includes a lightweight graphical interface for the command suite. Launch it from an FSL environment with:
+
+```bash
+xtract_gui
+```
+
+The GUI is distributed as a single executable script and uses the Tk/ttk runtime supplied with FSL Python. It adds no third-party runtime dependencies.
+
 ---------------------------------------------------------------------
 
 ## Citations:

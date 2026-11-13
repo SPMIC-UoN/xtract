@@ -1,0 +1,969 @@
+#!/usr/bin/env fslpython
+"""Lightweight, single-file graphical interface for the XTRACT command suite.
+
+Generated from the modular XTRACT GUI source and kept dependency-free apart
+from the standard-library Tk/ttk runtime supplied with FSL Python.
+"""
+import sys
+
+# --- Command specifications ---
+
+"""Declarative command specifications for the XTRACT GUI."""
+
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+
+@dataclass(frozen=True)
+class Field:
+    flag: str
+    label: str
+    help: str
+    kind: str = "text"  # text, file, folder, choice, bool, int, float
+    required: bool = False
+    choices: Tuple[str, ...] = ()
+    default: str = ""
+    nargs: int = 1
+    value_labels: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Tool:
+    command: str
+    title: str
+    summary: str
+    required: Tuple[Field, ...]
+    advanced: Tuple[Field, ...]
+    docs_anchor: Optional[str] = None
+
+
+F = Field
+
+TOOLS = (
+    Tool(
+        "xtract", "XTRACT", "Automatically extract standardised white-matter tracts.",
+        (
+            F("-bpx", "BedpostX folder", "Folder containing fitted crossing-fibre data.", "folder", True),
+            F("-out", "Output folder", "Where XTRACT results will be written.", "folder", True),
+            F("-species", "Species", "Protocol family to use.", "choice", True,
+              ("HUMAN", "MACAQUE", "HUMAN_BABY", "CUSTOM"), "HUMAN"),
+        ),
+        (
+            F("-tract_list", "Tract list", "Comma-separated tract names."),
+            F("-str", "Structures file", "Custom structures definition.", "file"),
+            F("-p", "Protocols folder", "Override the standard protocols folder.", "folder"),
+            F("-stdref", "Standard reference", "Standard-space reference image.", "file"),
+            F("-stdwarp", "Standard warps", "Standard-to-diffusion and diffusion-to-standard warps.", "file", nargs=2,
+              value_labels=("Standard → diffusion", "Diffusion → standard")),
+            F("-mac_ext", "Macaque template", "Macaque template space.", "choice", choices=("", "F99", "D99", "INIA", "NMT", "YRK")),
+            F("-native", "Run in native space", "Run tractography in diffusion space.", "bool"),
+            F("-in_native", "Protocols already native", "Protocol masks are already in diffusion space.", "bool"),
+            F("-ref", "Reference-space inputs", "Reference image, diff-to-ref and ref-to-diff transforms.", "file", nargs=3,
+              value_labels=("Reference image", "Diffusion → reference", "Reference → diffusion")),
+            F("-res", "Output resolution (mm)", "Leave blank to retain the protocol resolution.", "float"),
+            F("-ptx_options", "ProbtrackX options file", "File overriding ProbtrackX defaults.", "file"),
+            F("-interp", "Interpolation", "Protocol ROI interpolation.", "choice", choices=("", "nn", "tri")),
+            F("-gpu", "Use GPU", "Use probtrackx2_gpu.", "bool"),
+            F("-par", "Submit one job per tract", "Parallel cluster submission through fsl_sub.", "bool"),
+        ), "XTRACT",
+    ),
+    Tool(
+        "xtract_blueprint", "Blueprint", "Create a connectivity blueprint from XTRACT outputs.",
+        (
+            F("-bpx", "BedpostX folder", "BedpostX input folder.", "folder", True),
+            F("-xtract", "XTRACT folder", "Completed XTRACT output folder.", "folder", True),
+            F("-seeds", "Seed list", "Comma-separated seed images.", required=True),
+            F("-target", "Target mask", "Whole-brain or white-matter target mask.", "file", True),
+        ),
+        (
+            F("-warps", "Warp inputs", "Reference, XTRACT-to-diffusion and diffusion-to-XTRACT.", "file", nargs=3,
+              value_labels=("Reference image", "XTRACT → diffusion", "Diffusion → XTRACT")),
+            F("-native", "Run in native space", "Run tractography in diffusion space.", "bool"),
+            F("-out", "Output folder", "Defaults to <xtract>/blueprint.", "folder"),
+            F("-stage", "Stage", "0: everything, 1: matrix2, 2: blueprint.", "choice", choices=("0", "1", "2"), default="0"),
+            F("-savetxt", "Save text matrix", "Save as text instead of CIFTI.", "bool"),
+            F("-prefix", "Output prefix", "Prefix for the blueprint filename."),
+            F("-rois", "ROI list", "Comma-separated GIFTI ROIs."),
+            F("-stops", "Stop masks list", "Line-separated stop-mask file.", "file"),
+            F("-wtstops", "Waypoint stop list", "Line-separated waypoint-stop file.", "file"),
+            F("-exclusion", "Exclusion mask", "Binary NIFTI exclusion mask.", "file"),
+            F("-subseed", "Subcortical seeds", "Line-separated subcortical seed file.", "file"),
+            F("-tract_list", "Tract list", "Comma-separated tracts."),
+            F("-thr", "Tract threshold", "Threshold applied before blueprint calculation.", "float", default="0.001"),
+            F("-nsamples", "Samples per seed", "ProbtrackX samples per seed.", "int", default="1000"),
+            F("-res", "Matrix resolution (mm)", "Use 0 for standard-space resolution.", "float", default="3"),
+            F("-ptx_options", "ProbtrackX options file", "File overriding ProbtrackX defaults.", "file"),
+            F("-gpu", "Use GPU", "Use probtrackx2_gpu.", "bool"),
+            F("-keepfiles", "Keep temporary files", "Do not remove intermediate files.", "bool"),
+        ), "XTRACT blueprint",
+    ),
+    Tool(
+        "xtract_viewer", "Viewer", "Open XTRACT tract results in FSLeyes.",
+        (
+            F("-xtract", "XTRACT folder", "Completed XTRACT output folder.", "folder", True),
+            F("-species", "Species / template", "Space used by the results.", "choice", True,
+              ("HUMAN", "MACAQUE", "MACAQUE_F99", "MACAQUE_D99", "MACAQUE_INIA", "MACAQUE_NMT", "MACAQUE_YRK", "HUMAN_BABY", "CUSTOM"), "HUMAN"),
+        ),
+        (
+            F("-brain", "Brain template", "Custom background template.", "file"),
+            F("-tract_list", "Tract list", "Comma-separated tracts."),
+            F("-thr", "Display thresholds", "Lower and upper display thresholds.", "float", default="0.001\n0.1", nargs=2,
+              value_labels=("Lower", "Upper")),
+            F("-print_cmd", "Print FSLeyes command only", "Do not launch FSLeyes.", "bool"),
+        ), "XTRACT viewer",
+    ),
+    Tool(
+        "xtract_stats", "Statistics", "Extract tract-level volume, probability, length and microstructure.",
+        (
+            F("-xtract", "XTRACT folder", "Completed XTRACT output folder.", "folder", True),
+            F("-d", "Data basename", "Microstructure folder and basename, e.g. /data/dti_.", required=True),
+        ),
+        (
+            F("-warp", "Warp inputs", "Reference image and XTRACT-to-reference warp.", "file", nargs=2,
+              value_labels=("Reference image", "XTRACT → reference")),
+            F("-out", "Output CSV", "Defaults to <xtract>/stats.csv.", "file"),
+            F("-meas", "Measures", "Comma-separated measures.", default="vol,prob,length,FA,MD"),
+            F("-tract_list", "Tract list", "Comma-separated tracts."),
+            F("-thr", "Tract threshold", "Threshold applied to tract maps.", "float", default="0.001"),
+        ), "XTRACT stats",
+    ),
+    Tool(
+        "xtract_qc", "Quality control", "Flag tract-volume outliers across a cohort.",
+        (
+            F("-subject_list", "Subject list", "Text file containing XTRACT folders, one per line.", "file", True),
+            F("-out", "Output folder", "Where QC results will be written.", "folder", True),
+        ),
+        (
+            F("-tract_list", "Tract list", "Comma-separated tracts."),
+            F("-thr", "Tract threshold", "Threshold for tract-volume calculation.", "float", default="0.001"),
+            F("-n_std", "Outlier SD limit", "Standard deviations from the mean.", "float", default="2"),
+            F("-use_prior", "Reuse existing metrics", "Use previously calculated QC metrics.", "bool"),
+        ), "XTRACT QC",
+    ),
+    Tool(
+        "xtract_divergence", "Divergence", "Compare connectivity blueprints and translate cortical scalar maps.",
+        (
+            F("-bpa", "Base blueprint", "Base CIFTI blueprint.", "file", True),
+            F("-bpb", "Target blueprint", "Target-space CIFTI blueprint.", "file", True),
+            F("-out", "Output folder", "Folder where divergence results will be written.", "folder", True),
+            F("-masksa", "Base cortical masks", "Left and right GIFTI masks.", "file", True, nargs=2,
+              value_labels=("Left hemisphere", "Right hemisphere")),
+            F("-masksb", "Target cortical masks", "Left and right GIFTI masks.", "file", True, nargs=2,
+              value_labels=("Left hemisphere", "Right hemisphere")),
+        ),
+        (
+            F("-metric", "Divergence metric", "Comparison metric.", "choice", choices=("KLD", "KLD_bias", "JSD", "KLDscipy"), default="KLD"),
+            F("-roi", "ROI / coordinate", "ROI path, vertex, voxel coordinate or CIFTI structure."),
+            F("-hemi", "ROI hemisphere", "Required when an ROI is supplied.", "choice", choices=("", "L", "R")),
+            F("-base_scalars", "Base scalar maps", "Left and right GIFTI scalar maps.", "file", nargs=2,
+              value_labels=("Left hemisphere", "Right hemisphere")),
+            F("-target_scalars", "Target scalar maps", "Left and right target GIFTI maps.", "file", nargs=2,
+              value_labels=("Left hemisphere", "Right hemisphere")),
+            F("-names", "Brain names", "Base and target brain names.", nargs=2,
+              value_labels=("Base", "Target")),
+            F("-tract_list", "Tract list", "Comma-separated tracts present in both blueprints."),
+            F("-ncores", "CPU cores", "Cores used for JSD and KLDscipy.", "int", default="1"),
+        ), "XTRACT Divergence",
+    ),
+)
+
+# --- Command construction and validation ---
+
+"""Command construction and validation, kept independent from the GUI toolkit."""
+
+import os
+import shlex
+import shutil
+from pathlib import Path
+from typing import Dict, List
+
+
+
+class ValidationError(ValueError):
+    pass
+
+
+def split_values(value: str, count: int) -> List[str]:
+    value = value.strip()
+    if count == 1:
+        return [value] if value else []
+    # Multi-value path inputs are entered one per line. Commas remain valid in paths.
+    values = [item.strip() for item in value.splitlines() if item.strip()]
+    if len(values) == 1 and "," in values[0]:
+        values = [item.strip() for item in values[0].split(",") if item.strip()]
+    return values
+
+
+def validate_field(field: Field, value: str) -> List[str]:
+    if field.kind == "bool":
+        return []
+    values = split_values(value, field.nargs)
+    if field.required and not values:
+        raise ValidationError(f"{field.label} is required.")
+    if values and len(values) != field.nargs:
+        raise ValidationError(f"{field.label} needs {field.nargs} values (enter one per line).")
+    if field.kind in ("int", "float") and values:
+        converter = int if field.kind == "int" else float
+        try:
+            for item in values:
+                converter(item)
+        except ValueError as error:
+            raise ValidationError(f"{field.label} must be a valid {field.kind}.") from error
+    if field.choices and values and values[0] not in field.choices:
+        raise ValidationError(f"Choose a valid value for {field.label}.")
+    return values
+
+
+def resolve_command(command: str) -> str:
+    override = os.environ.get("XTRACT_GUI_BIN")
+    if override:
+        candidate = Path(override) / command
+        if candidate.is_file():
+            return str(candidate)
+    fsldir = os.environ.get("FSLDIR")
+    if fsldir:
+        candidate = Path(fsldir) / "bin" / command
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which(command) or command
+
+
+def build_command(tool: Tool, values: Dict[str, object]) -> List[str]:
+    command = [resolve_command(tool.command)]
+    for field in tool.required + tool.advanced:
+        raw = values.get(field.flag, False if field.kind == "bool" else "")
+        if field.kind == "bool":
+            if bool(raw):
+                command.append(field.flag)
+            continue
+        parts = validate_field(field, str(raw))
+        if parts:
+            command.extend((field.flag, *parts))
+    # Cross-field rules from the command interfaces.
+    if tool.command == "xtract" and values.get("-species") == "CUSTOM":
+        for flag, label in (("-str", "Structures file"), ("-p", "Protocols folder"), ("-stdref", "Standard reference")):
+            if not str(values.get(flag, "")).strip():
+                raise ValidationError(f"{label} is required when Species is CUSTOM.")
+    if tool.command == "xtract_divergence" and str(values.get("-roi", "")).strip() and not str(values.get("-hemi", "")).strip():
+        raise ValidationError("ROI hemisphere is required when an ROI is supplied.")
+    return command
+
+
+def display_command(command: List[str]) -> str:
+    return shlex.join(command)
+
+# --- Persistent GUI settings ---
+
+"""Dependency-free user settings and operating-system theme detection."""
+
+import json
+import os
+import platform
+from pathlib import Path
+
+
+def settings_path() -> Path:
+    system = platform.system()
+    if system == "Darwin":
+        root = Path.home() / "Library" / "Application Support"
+    elif system == "Windows":
+        root = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    else:
+        root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return root / "xtract_gui" / "settings.json"
+
+
+def load_settings() -> dict:
+    try:
+        data = json.loads(settings_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def save_settings(settings: dict) -> None:
+    try:
+        path = settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+# --- Tk/ttk application ---
+
+"""Tk/ttk desktop interface for the XTRACT command suite."""
+
+import os
+import platform
+import signal
+import shutil
+import subprocess
+import threading
+import tkinter as tk
+import webbrowser
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+from tkinter.scrolledtext import ScrolledText
+
+
+DOCS_URL = "https://fsl.fmrib.ox.ac.uk/fsl/docs/diffusion/xtract.html"
+
+
+def open_with_default_app(path: Path) -> None:
+    """Open a file/folder with the desktop's registered default application."""
+    path = path.expanduser().resolve()
+    if platform.system() == "Darwin":
+        command = ["open", str(path)]
+    elif platform.system() == "Windows":
+        os.startfile(str(path))
+        return
+    elif "microsoft" in platform.release().lower() and shutil.which("wslview"):
+        command = ["wslview", str(path)]
+    elif shutil.which("xdg-open"):
+        command = ["xdg-open", str(path)]
+    else:
+        raise OSError("No desktop file opener was found (expected xdg-open or wslview).")
+    subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class FieldRow:
+    def __init__(self, parent, field: Field, row: int, changed):
+        self.field = field
+        details = [field.help, f"Command option: {field.flag}"]
+        if field.required:
+            details.append("Required input")
+        if field.choices:
+            details.append("Choices: " + ", ".join(choice for choice in field.choices if choice))
+        if field.default:
+            details.append("Default: " + field.default.replace("\n", ", "))
+        if field.nargs > 1:
+            details.append(f"Provide {field.nargs} values in the order shown")
+        self.help_text = "\n".join(details)
+        defaults = [item.strip() for item in field.default.replace(",", "\n").splitlines()]
+        self.vars = ([tk.BooleanVar(value=False)] if field.kind == "bool" else
+                     [tk.StringVar(value=defaults[index] if index < len(defaults) else "")
+                      for index in range(field.nargs)])
+        self.widgets = []
+        if field.kind == "bool":
+            self.widget = ttk.Checkbutton(parent, text=field.label, variable=self.vars[0], command=changed)
+            self.widget.grid(row=row, column=0, columnspan=3, sticky="w", padx=8, pady=4)
+            self.widgets.append(self.widget)
+        else:
+            label = field.label + ("  *" if field.required else "")
+            label_box = ttk.Frame(parent)
+            label_box.grid(row=row, column=0, sticky="nw", padx=(10, 12), pady=7)
+            label_widget = ttk.Label(label_box, text=label)
+            label_widget.pack(side="left")
+            help_widget = ttk.Label(label_box, text="  ⓘ", style="Help.TLabel", cursor="question_arrow")
+            help_widget.pack(side="left")
+            ToolTip(label_widget, self.help_text)
+            ToolTip(help_widget, self.help_text)
+            if field.choices:
+                self.widget = ttk.Combobox(parent, textvariable=self.vars[0], values=field.choices, state="readonly", width=25)
+                self.widget.bind("<<ComboboxSelected>>", lambda _event: changed())
+                self.widget.grid(row=row, column=1, sticky="ew", pady=5)
+                self.widgets.append(self.widget)
+            else:
+                inputs = ttk.Frame(parent)
+                inputs.grid(row=row, column=1, columnspan=2, sticky="ew", pady=3)
+                inputs.columnconfigure(1, weight=1)
+                for index, variable in enumerate(self.vars):
+                    variable.trace_add("write", lambda *_: changed())
+                    if field.nargs > 1:
+                        sublabel = field.value_labels[index] if index < len(field.value_labels) else f"Value {index + 1}"
+                        ttk.Label(inputs, text=sublabel, style="Subfield.TLabel", width=21).grid(
+                            row=index, column=0, sticky="w", padx=(0, 8), pady=2)
+                    entry = ttk.Entry(inputs, textvariable=variable)
+                    entry.grid(row=index, column=1, sticky="ew", pady=2)
+                    self.widgets.append(entry)
+                    if field.kind in ("file", "folder"):
+                        ttk.Button(inputs, text="Select…", command=lambda i=index: self._browse(i), width=9).grid(
+                            row=index, column=2, padx=(6, 8), pady=2)
+        for widget in self.widgets:
+            widget.configure(takefocus=True)
+            ToolTip(widget, self.help_text)
+
+    def _browse(self, index=0):
+        variable = self.vars[index]
+        root = self.parent_root()
+        initial = variable.get() or root.last_browse_dir
+        initial_dir = initial if os.path.isdir(initial) else os.path.dirname(initial)
+        if self.field.kind == "folder":
+            result = filedialog.askdirectory(initialdir=initial_dir or None)
+        else:
+            result = filedialog.askopenfilename(initialdir=initial_dir or None)
+        if not result:
+            return
+        variable.set(result)
+        root.last_browse_dir = result if os.path.isdir(result) else os.path.dirname(result)
+
+    def parent_root(self):
+        return self.widgets[0].winfo_toplevel()
+
+    def get(self):
+        if self.field.kind == "bool":
+            return self.vars[0].get()
+        return "\n".join(variable.get().strip() for variable in self.vars if variable.get().strip())
+
+
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget, self.text, self.popup = widget, text, None
+        widget.bind("<Enter>", self.show, add=True)
+        widget.bind("<Leave>", self.hide, add=True)
+
+    def show(self, _event=None):
+        if self.popup or not self.text:
+            return
+        x, y = self.widget.winfo_rootx() + 16, self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.popup = tk.Toplevel(self.widget)
+        self.popup.wm_overrideredirect(True)
+        self.popup.wm_geometry(f"+{x}+{y}")
+        ttk.Label(self.popup, text=self.text, wraplength=430, padding=8, style="Tooltip.TLabel").pack()
+
+    def hide(self, _event=None):
+        if self.popup:
+            self.popup.destroy()
+            self.popup = None
+
+
+class ToolPanel(ttk.Frame):
+    def __init__(self, parent, tool: Tool, app):
+        super().__init__(parent, padding=(16, 12))
+        self.tool, self.app, self.rows = tool, app, {}
+        self.advanced_visible = tk.BooleanVar(value=False)
+        self.columnconfigure(0, weight=1)
+
+        header = ttk.Frame(self)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text=tool.title, style="Title.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Button(header, text="Open guide ↗", command=lambda: webbrowser.open(DOCS_URL)).grid(row=0, column=1, sticky="e")
+        ttk.Label(header, text=tool.summary, style="Summary.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+        required = ttk.LabelFrame(self, text="Required inputs", padding=(4, 6))
+        required.grid(row=1, column=0, sticky="ew")
+        required.columnconfigure(1, weight=1)
+        for index, field in enumerate(tool.required):
+            self.rows[field.flag] = FieldRow(required, field, index, self._changed)
+
+        self.advanced_button = ttk.Checkbutton(self, text="Show advanced options", variable=self.advanced_visible,
+                                               command=self._toggle_advanced, style="Disclosure.TCheckbutton")
+        self.advanced_button.grid(row=2, column=0, sticky="w", pady=(10, 4))
+        self.advanced = ttk.LabelFrame(self, text="Advanced options", padding=(4, 6))
+        self.advanced.columnconfigure(1, weight=1)
+        for index, field in enumerate(tool.advanced):
+            self.rows[field.flag] = FieldRow(self.advanced, field, index, self._changed)
+
+        preview = ttk.LabelFrame(self, text="Command preview", padding=(8, 6))
+        preview.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        preview.columnconfigure(0, weight=1)
+        colours = app.palette
+        self.preview = tk.Text(preview, height=3, wrap="word", borderwidth=0, background=colours["field"],
+                               foreground=colours["text"], insertbackground=colours["text"],
+                               selectbackground=colours["selection"], selectforeground=colours["text"],
+                               font=("TkFixedFont", 11), padx=9, pady=7)
+        self.preview.grid(row=0, column=0, sticky="ew")
+        self.preview.configure(state="disabled")
+        preview_actions = ttk.Frame(preview)
+        preview_actions.grid(row=0, column=1, padx=(8, 0), sticky="n")
+        ttk.Button(preview_actions, text="Copy", command=self._copy, width=12).pack(pady=(0, 5))
+        ttk.Button(preview_actions, text="Clear command", command=self._clear_command, width=12).pack()
+
+        actions = ttk.Frame(self)
+        actions.grid(row=5, column=0, sticky="ew", pady=(10, 0))
+        actions.columnconfigure(0, weight=1)
+        self.status = ttk.Label(actions, text="Complete the required inputs", style="Muted.TLabel")
+        self.status.grid(row=0, column=0, sticky="w")
+        self.result_button = ttk.Button(actions, command=self._open_result)
+        self.result_button.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.result_button.grid_remove()
+        self.result_path = None
+        self.run_button = ttk.Button(actions, text=f"Run {tool.command}", command=self.run, style="Accent.TButton")
+        self.run_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        self._changed()
+
+    def values(self):
+        return {flag: row.get() for flag, row in self.rows.items()}
+
+    def command(self):
+        return build_command(self.tool, self.values())
+
+    def _toggle_advanced(self):
+        if self.advanced_visible.get():
+            self.advanced.grid(row=3, column=0, sticky="ew")
+            self.advanced_button.configure(text="Hide advanced options")
+        else:
+            self.advanced.grid_remove()
+            self.advanced_button.configure(text="Show advanced options")
+
+    def _changed(self):
+        try:
+            command = self.command()
+            text = display_command(command)
+            self.status.configure(text="Ready to run")
+        except ValidationError as error:
+            text = self.tool.command + "  —  " + str(error)
+            self.status.configure(text=str(error))
+        self.preview.configure(state="normal")
+        self.preview.delete("1.0", "end")
+        self.preview.insert("1.0", text)
+        self.preview.configure(state="disabled")
+
+    def _copy(self):
+        self.clipboard_clear()
+        self.clipboard_append(self.preview.get("1.0", "end-1c"))
+        self.status.configure(text="Command copied")
+
+    def _clear_command(self):
+        self.preview.configure(state="normal")
+        self.preview.delete("1.0", "end")
+        self.preview.configure(state="disabled")
+        self.status.configure(text="Command preview cleared; editing an input will rebuild it")
+
+    def run(self):
+        try:
+            command = self.command()
+        except ValidationError as error:
+            messagebox.showerror("Check the inputs", str(error), parent=self)
+            return
+        executable = command[0]
+        if os.path.sep not in executable and not shutil_which(executable):
+            messagebox.showerror("XTRACT command not found",
+                                 f"Could not find '{self.tool.command}'. Start the GUI from an FSL terminal, or set XTRACT_GUI_BIN to the XTRACT bin folder.", parent=self)
+            return
+        self.result_button.grid_remove()
+        self.result_path = None
+        self.app.start_process(command, self.tool.title, self)
+
+    def _expected_result(self):
+        values = self.values()
+        command = self.tool.command
+        if command == "xtract_stats":
+            path = values.get("-out") or str(Path(str(values.get("-xtract", ""))) / "stats.csv")
+            return "Open stats file", Path(str(path))
+        if command == "xtract_qc":
+            return "Open QC report", Path(str(values.get("-out", ""))) / "qc_report.html"
+        if command == "xtract_blueprint":
+            path = values.get("-out") or str(Path(str(values.get("-xtract", ""))) / "blueprint")
+            return "Open results folder", Path(str(path))
+        if command in ("xtract", "xtract_divergence"):
+            return "Open results folder", Path(str(values.get("-out", "")))
+        if command == "xtract_viewer":
+            return "Open results folder", Path(str(values.get("-xtract", "")))
+        return None, None
+
+    def show_result_action(self):
+        label, path = self._expected_result()
+        if label and path and str(path) and path.expanduser().exists():
+            self.result_path = path
+            self.result_button.configure(text=label)
+            self.result_button.grid()
+
+    def _open_result(self):
+        if not self.result_path or not self.result_path.expanduser().exists():
+            messagebox.showerror("Result not found", "The expected result no longer exists.", parent=self)
+            self.result_button.grid_remove()
+            return
+        try:
+            open_with_default_app(self.result_path)
+        except OSError as error:
+            messagebox.showerror("Could not open result", str(error), parent=self)
+
+
+def shutil_which(command):
+    from shutil import which
+    return which(command)
+
+
+class XtractApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("XTRACT")
+        self.minsize(820, 680)
+        self.process = None
+        self.process_error_seen = False
+        self.last_browse_dir = str(Path.home())
+        self.settings = load_settings()
+        saved_theme = self.settings.get("theme", "Light")
+        self.theme_choice = tk.StringVar(value=saved_theme if saved_theme in ("Light", "Dark") else "Light")
+        self.palette = {}
+        self.canvases = []
+        self._style()
+
+        shell = ttk.Frame(self, padding=(18, 14, 18, 16))
+        shell.pack(fill="both", expand=True)
+        shell.rowconfigure(1, weight=1)
+        shell.columnconfigure(0, weight=1)
+
+        top = ttk.Frame(shell)
+        top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        top.columnconfigure(1, weight=1)
+        ttk.Label(top, text="XTRACT", style="Brand.TLabel").grid(row=0, column=0, sticky="w")
+        env = f"FSL: {os.environ.get('FSLDIR', 'not detected')}"
+        ttk.Label(top, text=env, style="Muted.TLabel").grid(row=0, column=1, sticky="e")
+        self.theme_button = ttk.Button(top, command=self._toggle_theme, width=10)
+        self.theme_button.grid(row=0, column=2, sticky="e", padx=(16, 0))
+        self._update_theme_button()
+
+        self.notebook = ttk.Notebook(shell)
+        self.notebook.grid(row=1, column=0, sticky="nsew")
+        self.panels = []
+        self._add_intro_tab()
+        for tool in TOOLS:
+            holder = ttk.Frame(self.notebook)
+            holder.rowconfigure(0, weight=1)
+            holder.columnconfigure(0, weight=1)
+            canvas = tk.Canvas(holder, highlightthickness=0, background=self.palette["bg"])
+            self.canvases.append(canvas)
+            scroll = ttk.Scrollbar(holder, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scroll.set)
+            canvas.grid(row=0, column=0, sticky="nsew")
+            scroll.grid(row=0, column=1, sticky="ns")
+            panel = ToolPanel(canvas, tool, self)
+            window = canvas.create_window((0, 0), window=panel, anchor="nw")
+            panel.bind("<Configure>", lambda _e, c=canvas: c.configure(scrollregion=c.bbox("all")))
+            canvas.bind("<Configure>", lambda e, c=canvas, w=window: c.itemconfigure(w, width=e.width))
+            self._enable_mousewheel(canvas, panel)
+            self.notebook.add(holder, text=tool.title)
+            self.panels.append(panel)
+
+        self.console_frame = ttk.LabelFrame(shell, text="Run log", padding=(10, 8))
+        self.console_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        self.console_frame.columnconfigure(0, weight=1)
+        self.console = ScrolledText(self.console_frame, height=13, wrap="word",
+                                    background=self.palette["console"], foreground=self.palette["console_text"],
+                                    insertbackground=self.palette["console_text"],
+                                    selectbackground=self.palette["console_selection"], selectforeground="white",
+                                    font=("TkFixedFont", 11), borderwidth=0, padx=10, pady=9)
+        self.console.grid(row=0, column=0, sticky="ew")
+        controls = ttk.Frame(self.console_frame)
+        controls.grid(row=0, column=1, sticky="ns", padx=(8, 0))
+        self.cancel_button = ttk.Button(controls, text="Stop", command=self.stop_process, state="disabled", width=9)
+        self.cancel_button.pack(pady=(0, 6))
+        ttk.Button(controls, text="Clear log", command=lambda: self.console.delete("1.0", "end"), width=9).pack()
+
+        self.notebook.bind("<<NotebookTabChanged>>", self._tab_changed)
+        self._tab_changed()
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self.after_idle(self._centre_window)
+
+    def _add_intro_tab(self):
+        intro = ttk.Frame(self.notebook, padding=(24, 14))
+        intro.columnconfigure(0, weight=1)
+        ttk.Label(
+            intro,
+            text=(r" __  _______ ____      _    ____ _____" "\n"
+                  r" \ / /_   _|  _ \    / \  / ___|_   _|" "\n"
+                  r"  \  /  | | | |_) |  / _ \| |     | |" "\n"
+                  r"  /  \  | | |  _ <  / ___ \ |___  | |" "\n"
+                  r" /_/\_\ |_| |_| \_\/_/   \_\____| |_|"),
+            style="Ascii.TLabel", justify="left",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            intro,
+            text=("XTRACT automatically identifies major white-matter pathways using standard-space "
+                  "tractography protocols and probabilistic tractography in each subject's native diffusion "
+                  "space. It supports adult human, neonatal human, macaque and custom protocol sets."),
+            style="IntroBody.TLabel", wraplength=760, justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 9))
+        steps = ttk.LabelFrame(intro, text="Typical workflow", padding=(14, 8))
+        steps.grid(row=2, column=0, sticky="ew")
+        ttk.Label(
+            steps,
+            text=("1. Prepare diffusion data and run BedpostX\n"
+                  "2. Generate registration fields between diffusion and protocol standard space\n"
+                  "3. Run XTRACT to reconstruct selected tracts\n"
+                  "4. Inspect results with Viewer, Statistics or Quality control\n"
+                  "5. Optionally create and compare connectivity blueprints"),
+            style="IntroBody.TLabel", justify="left",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            intro,
+            text="Choose a tool from the tabs above. Required inputs are shown first; hover over ⓘ for full option guidance.",
+            style="IntroHint.TLabel", wraplength=760, justify="left",
+        ).grid(row=3, column=0, sticky="w", pady=(8, 6))
+        ttk.Button(intro, text="Open XTRACT guide ↗", command=lambda: webbrowser.open(DOCS_URL)).grid(row=4, column=0, sticky="w")
+        references = ttk.LabelFrame(intro, text="Manuscript references", padding=(12, 7))
+        references.grid(row=5, column=0, sticky="ew", pady=(8, 0))
+        references.columnconfigure(0, weight=1, uniform="references")
+        references.columnconfigure(1, weight=1, uniform="references")
+
+        def reference_link(parent, row, text, url):
+            link = ttk.Label(parent, text=text, style="Link.TLabel", cursor="pointinghand",
+                             wraplength=360, justify="left")
+            link.grid(row=row, column=0, sticky="nw", pady=(1, 3))
+            link.bind("<Button-1>", lambda _event, target=url: webbrowser.open(target))
+            ToolTip(link, f"Open manuscript page\n{url}")
+
+        xtract_refs = ttk.Frame(references)
+        xtract_refs.grid(row=0, column=0, sticky="new", padx=(0, 14))
+        xtract_refs.columnconfigure(0, weight=1)
+        ttk.Label(xtract_refs, text="XTRACT", style="ReferenceHeading.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(xtract_refs, text="If you use XTRACT in your research, please cite the following articles:",
+                  style="Reference.TLabel", wraplength=360, justify="left").grid(row=1, column=0, sticky="w", pady=(3, 3))
+        reference_link(xtract_refs, 2, "Warrington et al. (2020) — XTRACT: standardised protocols for automated tractography and connectivity blueprints",
+                       "https://doi.org/10.1016/j.neuroimage.2020.116923")
+        reference_link(xtract_refs, 3, "Warrington et al. (2022) — Concurrent mapping of brain ontogeny and phylogeny within a common space",
+                       "https://doi.org/10.1126/sciadv.abq2022")
+        reference_link(xtract_refs, 4, "de Groot et al. (2013) — Improving alignment in tract-based spatial statistics",
+                       "https://doi.org/10.1016/j.neuroimage.2013.03.015")
+
+        protocol_refs = ttk.Frame(xtract_refs)
+        protocol_refs.grid(row=5, column=0, sticky="ew", pady=(2, 0))
+        protocol_refs.columnconfigure(0, weight=1)
+        ttk.Label(protocol_refs, text="If you use the macaque protocols, please also cite:",
+                  style="Reference.TLabel", wraplength=360, justify="left").grid(row=0, column=0, sticky="w")
+        reference_link(protocol_refs, 1, "Assimopoulos et al. (2024) — Generalising XTRACT protocols across macaque templates",
+                       "https://doi.org/10.1007/s00429-024-02760-0")
+        ttk.Label(protocol_refs, text="If you use the extended cortico-subcortical protocols, please also cite:",
+                  style="Reference.TLabel", wraplength=360, justify="left").grid(row=2, column=0, sticky="w", pady=(3, 0))
+        reference_link(protocol_refs, 3, "Assimopoulos et al. (2025) — Cross-species standardised cortico-subcortical tractography",
+                       "https://doi.org/10.7554/eLife.107012")
+
+        blueprint_refs = ttk.Frame(references)
+        blueprint_refs.grid(row=0, column=1, sticky="new", padx=(14, 0))
+        blueprint_refs.columnconfigure(0, weight=1)
+        ttk.Label(blueprint_refs, text="Blueprint & Divergence", style="ReferenceHeading.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(blueprint_refs, text="If you use XTRACT Blueprint or XTRACT Divergence in your research, please cite:",
+                  style="Reference.TLabel", wraplength=360, justify="left").grid(row=1, column=0, sticky="w", pady=(3, 3))
+        reference_link(blueprint_refs, 2, "Mars et al. (2018) — Whole-brain comparative anatomy using connectivity blueprints",
+                       "https://doi.org/10.7554/eLife.35237")
+        reference_link(blueprint_refs, 3, "Warrington et al. (2020) — XTRACT: standardised protocols for automated tractography and connectivity blueprints",
+                       "https://doi.org/10.1016/j.neuroimage.2020.116923")
+        reference_link(blueprint_refs, 4, "Warrington et al. (2022) — Concurrent mapping of brain ontogeny and phylogeny within a common space",
+                       "https://doi.org/10.1126/sciadv.abq2022")
+        self.notebook.add(intro, text="Introduction")
+
+    def _tab_changed(self, _event=None):
+        if not hasattr(self, "console_frame"):
+            return
+        if self.notebook.index(self.notebook.select()) == 0:
+            self.console_frame.grid_remove()
+        else:
+            self.console_frame.grid()
+
+    def _enable_mousewheel(self, canvas, region):
+        def scroll(event):
+            if getattr(event, "num", None) == 4:
+                units = -3
+            elif getattr(event, "num", None) == 5:
+                units = 3
+            else:
+                delta = event.delta
+                units = -1 * (delta if abs(delta) < 120 else int(delta / 120))
+            canvas.yview_scroll(units, "units")
+            return "break"
+
+        def bind(_event):
+            canvas.bind_all("<MouseWheel>", scroll)
+            canvas.bind_all("<Button-4>", scroll)
+            canvas.bind_all("<Button-5>", scroll)
+
+        def unbind(_event):
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        region.bind("<Enter>", bind, add=True)
+        region.bind("<Leave>", unbind, add=True)
+
+    def _centre_window(self):
+        self.update_idletasks()
+        width = min(980, max(820, self.winfo_screenwidth() - 100))
+        height = min(860, max(680, self.winfo_screenheight() - 100))
+        x = max(0, (self.winfo_screenwidth() - width) // 2)
+        y = max(0, (self.winfo_screenheight() - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _style(self):
+        style = ttk.Style(self)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        if self.theme_choice.get() == "Dark":
+            self.palette = {
+                "bg": "#151a20", "surface": "#1d242c", "field": "#252e38", "text": "#e6edf3",
+                "muted": "#9cabb8", "heading": "#8fc5f4", "accent": "#3b82c4", "accent_active": "#5b9bd5",
+                "link": "#69b4f0", "link_active": "#9bd0fa", "selection": "#345d7d",
+                "tooltip": "#30353a", "console": "#0d1117", "console_text": "#e6edf3",
+                "console_selection": "#315d82", "tab_active": "#28323d",
+            }
+        else:
+            self.palette = {
+                "bg": "#f7f8fa", "surface": "#ffffff", "field": "#eef3f7", "text": "#26323d",
+                "muted": "#637383", "heading": "#17365d", "accent": "#2563a6", "accent_active": "#1d4f86",
+                "link": "#175f9c", "link_active": "#0f4776", "selection": "#b7d5f2",
+                "tooltip": "#fffbe8", "console": "#17212b", "console_text": "#e8edf2",
+                "console_selection": "#315d82", "tab_active": "#e8eef4",
+            }
+        p = self.palette
+        self.configure(background=p["bg"])
+        style.configure(".", font=("TkDefaultFont", 12), background=p["bg"], foreground=p["text"])
+        style.configure("TFrame", background=p["bg"])
+        style.configure("TLabel", background=p["bg"], foreground=p["text"])
+        style.configure("TCheckbutton", background=p["bg"], foreground=p["text"])
+        style.map("TCheckbutton", background=[("active", p["bg"])])
+        style.configure("TEntry", fieldbackground=p["field"], foreground=p["text"], insertcolor=p["text"])
+        style.configure("TCombobox", fieldbackground=p["field"], background=p["field"], foreground=p["text"], arrowcolor=p["text"])
+        style.map("TCombobox", fieldbackground=[("readonly", p["field"])], foreground=[("readonly", p["text"])])
+        style.configure("TButton", background=p["surface"], foreground=p["text"])
+        style.map("TButton", background=[("active", p["tab_active"])])
+        style.configure("Brand.TLabel", font=("TkDefaultFont", 20, "bold"), foreground=p["heading"])
+        style.configure("Title.TLabel", font=("TkDefaultFont", 17, "bold"), foreground=p["heading"])
+        style.configure("IntroTitle.TLabel", font=("TkDefaultFont", 24, "bold"), foreground=p["heading"])
+        # Tk's named fixed font is not reliably monospaced inside ttk styles on macOS.
+        # The Tk logical family "Courier" is mapped to an installed monospace face on all supported platforms.
+        style.configure("Ascii.TLabel", font=("Courier", 12, "bold"), foreground=p["heading"])
+        style.configure("IntroBody.TLabel", font=("TkDefaultFont", 13), foreground=p["text"])
+        style.configure("IntroHint.TLabel", font=("TkDefaultFont", 12, "italic"), foreground=p["muted"])
+        style.configure("Reference.TLabel", font=("TkDefaultFont", 10), foreground=p["muted"])
+        style.configure("ReferenceHeading.TLabel", font=("TkDefaultFont", 11, "bold"), foreground=p["heading"])
+        style.configure("Link.TLabel", font=("TkDefaultFont", 10, "underline"), foreground=p["link"])
+        style.map("Link.TLabel", foreground=[("active", p["link_active"])])
+        style.configure("Summary.TLabel", foreground=p["muted"])
+        style.configure("Subfield.TLabel", foreground=p["muted"], font=("TkDefaultFont", 10))
+        style.configure("Help.TLabel", foreground=p["accent_active"], font=("TkDefaultFont", 11, "bold"))
+        style.configure("Muted.TLabel", foreground=p["muted"])
+        style.configure("Tooltip.TLabel", background=p["tooltip"], foreground=p["text"])
+        style.configure("Accent.TButton", font=("TkDefaultFont", 12, "bold"), foreground="white", background=p["accent"], padding=(14, 8))
+        style.map("Accent.TButton", background=[("active", p["accent_active"])])
+        style.configure("TNotebook", background=p["bg"], borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(14, 9), font=("TkDefaultFont", 11))
+        style.map("TNotebook.Tab", background=[("selected", p["surface"]), ("active", p["tab_active"])],
+                  foreground=[("selected", p["heading"]), ("!selected", p["text"])])
+        style.configure("TLabelframe", background=p["bg"])
+        style.configure("TLabelframe.Label", background=p["bg"], foreground=p["heading"], font=("TkDefaultFont", 11, "bold"))
+
+    def _update_theme_button(self):
+        if hasattr(self, "theme_button"):
+            next_theme = "Light" if self.theme_choice.get() == "Dark" else "Dark"
+            symbol = "☀" if next_theme == "Light" else "☾"
+            self.theme_button.configure(text=f"{symbol} {next_theme}")
+
+    def _toggle_theme(self):
+        self.theme_choice.set("Dark" if self.theme_choice.get() == "Light" else "Light")
+        self.settings["theme"] = self.theme_choice.get()
+        save_settings(self.settings)
+        self._style()
+        self._update_theme_button()
+        for canvas in self.canvases:
+            canvas.configure(background=self.palette["bg"])
+        for panel in self.panels:
+            panel.preview.configure(background=self.palette["field"], foreground=self.palette["text"],
+                                    insertbackground=self.palette["text"], selectbackground=self.palette["selection"],
+                                    selectforeground=self.palette["text"])
+        self.console.configure(background=self.palette["console"], foreground=self.palette["console_text"],
+                               insertbackground=self.palette["console_text"],
+                               selectbackground=self.palette["console_selection"])
+
+    def log(self, text):
+        self.console.insert("end", text)
+        self.console.see("end")
+
+    def start_process(self, command, title, panel):
+        if self.process and self.process.poll() is None:
+            messagebox.showinfo("A tool is already running", "Stop the current run before starting another.", parent=self)
+            return
+        self.log(f"\n$ {display_command(command)}\n")
+        self.process_error_seen = False
+        try:
+            self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            text=True, bufsize=1, start_new_session=True)
+        except OSError as error:
+            self.log(f"Could not start: {error}\n")
+            messagebox.showerror("Could not start", str(error), parent=self)
+            return
+        self.cancel_button.configure(state="normal")
+        threading.Thread(target=self._read_process, args=(self.process, title, panel), daemon=True).start()
+
+    def _read_process(self, process, title, panel):
+        for line in iter(process.stdout.readline, ""):
+            if "Traceback (most recent call last)" in line or line.lstrip().startswith("NameError:"):
+                self.process_error_seen = True
+            self.after(0, self.log, line)
+        code = process.wait()
+        self.after(0, self._process_finished, process, title, panel, code)
+
+    def _process_finished(self, process, title, panel, code):
+        if self.process is process:
+            self.cancel_button.configure(state="disabled")
+            failed = code != 0 or self.process_error_seen
+            if failed:
+                detail = f"exited with code {code}" if code != 0 else "reported a Python traceback"
+                self.log(f"\n{title} failed: {detail}. Review the run log above.\n")
+                messagebox.showerror(
+                    f"{title} did not complete",
+                    f"The command {detail}. Review the run log for details.",
+                    parent=self,
+                )
+            else:
+                self.log(f"\n{title} finished successfully.\n")
+                panel.show_result_action()
+
+    def stop_process(self):
+        if self.process and self.process.poll() is None:
+            try:
+                os.killpg(self.process.pid, signal.SIGTERM)
+                self.log("\nStopping process…\n")
+            except ProcessLookupError:
+                pass
+
+    def _close(self):
+        if self.process and self.process.poll() is None:
+            if not messagebox.askyesno("A tool is running", "Stop it and close XTRACT?", parent=self):
+                return
+            self.stop_process()
+        self.destroy()
+
+
+def main():
+    XtractApp().mainloop()
+
+
+# --- Launcher and version reporting ---
+
+def get_version_text():
+    """Return installed FSL and XTRACT component versions on request."""
+    fsldir = os.environ.get("FSLDIR")
+    if not fsldir:
+        return "Unable to determine versions: FSLDIR is not set"
+    import glob
+    import json
+    wanted = {"fsl-xtract", "fsl-xtract_data", "fsl-ptx2"}
+    lines = []
+    try:
+        with open(os.path.join(fsldir, "etc", "fslversion")) as version_file:
+            lines.append(f"FSL: {version_file.read().strip()}")
+        packages = {}
+        for metadata_path in glob.glob(os.path.join(fsldir, "conda-meta", "*.json")):
+            with open(metadata_path) as metadata_file:
+                metadata = json.load(metadata_file)
+            if metadata.get("name") in wanted:
+                packages[metadata["name"]] = metadata.get("version", "unknown")
+        if wanted.issubset(packages):
+            lines.extend(f"{name}: {packages[name]}" for name in
+                         ("fsl-ptx2", "fsl-xtract", "fsl-xtract_data"))
+            return "Versions:\n" + "\n".join(lines)
+    except (OSError, ValueError, TypeError):
+        pass
+    result = subprocess.run([os.path.join(fsldir, "bin", "fslversion"), "-p"],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        return f"Unable to determine versions: {result.stderr.strip()}"
+    lines = []
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Version:"):
+            lines.append(f'FSL: {stripped.split(":", 1)[1].strip()}')
+            continue
+        fields = stripped.split()
+        if len(fields) >= 2 and fields[0] in wanted:
+            lines.append(f"{fields[0]}: {fields[1]}")
+    return "Versions:\n" + "\n".join(lines)
+
+
+if __name__ == "__main__":
+    if any(argument in ("-version", "--version") for argument in sys.argv[1:]):
+        print(get_version_text())
+    else:
+        main()
