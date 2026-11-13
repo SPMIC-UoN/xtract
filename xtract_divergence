@@ -22,11 +22,50 @@ import seaborn as sns
 import nibabel as nib
 from nibabel import cifti2
 
+FSLDIR = os.getenv('FSLDIR')
+FSLbin = os.path.join(FSLDIR, 'bin')
+
+def get_version_text():
+    """Return versions of the installed FSL and XTRACT components."""
+    import json, glob
+    wanted = {'fsl-xtract', 'fsl-xtract_data', 'fsl-ptx2'}
+    lines = []
+    try:
+        with open(os.path.join(FSLDIR, 'etc', 'fslversion')) as version_file:
+            lines.append(f'FSL: {version_file.read().strip()}')
+        packages = {}
+        for metadata_path in glob.glob(os.path.join(FSLDIR, 'conda-meta', '*.json')):
+            with open(metadata_path) as metadata_file:
+                metadata = json.load(metadata_file)
+            if metadata.get('name') in wanted:
+                packages[metadata['name']] = metadata.get('version', 'unknown')
+        if wanted.issubset(packages):
+            lines.extend(f'{name}: {packages[name]}' for name in ('fsl-ptx2', 'fsl-xtract', 'fsl-xtract_data'))
+            return 'Versions:\n' + '\n'.join(lines)
+    except (OSError, ValueError, TypeError):
+        pass
+    result = subprocess.run([os.path.join(FSLbin, 'fslversion'), '-p'], capture_output=True, text=True)
+    if result.returncode != 0:
+        return f'Unable to determine versions: {result.stderr.strip()}'
+    lines = [f'FSL: {line.split(":", 1)[1].strip()}' for line in result.stdout.splitlines()
+             if line.strip().startswith('Version:')]
+    for line in result.stdout.splitlines():
+        fields = line.strip().split()
+        if len(fields) >= 2 and fields[0] in wanted:
+            lines.append(f'{fields[0]}: {fields[1]}')
+    return 'Versions:\n' + '\n'.join(lines)
+
+class VersionAction(argparse.Action):
+    """Resolve package versions only when the version option is requested."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser._print_message(get_version_text() + '\n', sys.stdout)
+        parser.exit()
+
 # %% functions
 def errchk(errflag):
     if errflag:
         print("Exit without doing anything..")
-        quit()
+        sys.exit(1)
 
 def intersection(lst1, lst2):
     lst3 = [value for value in lst1 if value in lst2]
@@ -70,7 +109,7 @@ def get_info(bp):
 def get_coord_plot_fingerprint(bp, bp_info, search_ind, hemi='L'):
     if hasattr(search_ind, "__len__"):
         coord = [coord[0] for coord in enumerate(bp_info.cii_coord[bp_info.nvert:]) if (coord[1] == search_ind).all()][0]
-        coord += bp_info.nvert-1
+        coord += bp_info.nvert
     else:
         if hemi == 'L':
             coord = bp_info.cii_coord[:int(bp_info.nvert/2)].index(search_ind)
@@ -147,13 +186,13 @@ def div_singleGO(bp1, bp2, template_cii, mask, outname=None, measure='KLD', coor
             nib.save(cii_new, outname)
     elif measure == 'JSD':
         print('Calculating JS divergence for ROI')
-        D = JSD(bp1, bp2)
+        D = JSD(bp1, bp2).reshape(1, -1)
         D[:, mask == 0] = 0
         if outname is not None:
             ax_0 = nib.cifti2.ScalarAxis(['JSD'])
             ax_1 = template_cii.header.get_axis(1)
             new_h = nib.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
-            cii_new = nib.cifti2.Cifti2Image(D.reshape(1, -1), new_h)
+            cii_new = nib.cifti2.Cifti2Image(D, new_h)
             nib.save(cii_new, outname)
     elif measure == 'KLDscipy':
         print('Calculating KL divergence (*scipy version*) for whole-brain using a single core... this takes a moment')
@@ -197,14 +236,20 @@ def div_wholebrain(bp1, bp2, template_cii, mask, outname=None, measure='KLD', nu
             D[i, :] = JSD(bp1[:, i].reshape(-1, 1), bp2)
         Parallel(n_jobs=num_cores)(delayed(compute_and_update)(i) for i in range(0, bp1.shape[1]))
         D[:, mask == 0] = 0
-    elif measure == 'KLDscipy' and num_cores == 1:
-        print('Calculating KL divergence (*scipy version*) for whole-brain using a single core... this takes a moment')
+    elif measure == 'KLDscipy':
+        print(f'Calculating KL divergence (*scipy version*) for whole-brain using {num_cores} core(s)... this takes a moment')
         epsilon = 1e-10  # Small value to avoid division by zero
         bp1_shift = bp1 + epsilon
         bp2_shift = bp2 + epsilon
-        D = np.zeros((bp1.shape[1], bp2.shape[1]))
-        for i in range(0, bp1.shape[1]):
-                D[i,:] = 0.5*(scipy.stats.entropy(bp1_shift[:, i].reshape(-1, 1), bp2_shift, base=2, axis=0) + scipy.stats.entropy(bp2_shift, bp1_shift[:, i].reshape(-1, 1), base=2, axis=0))
+        def compute_row(i):
+            bp1_col = bp1_shift[:, i].reshape(-1, 1)
+            return 0.5 * (scipy.stats.entropy(bp1_col, bp2_shift, base=2, axis=0) +
+                          scipy.stats.entropy(bp2_shift, bp1_col, base=2, axis=0))
+        if num_cores == 1:
+            D = np.vstack([compute_row(i) for i in range(bp1.shape[1])])
+        else:
+            D = np.vstack(Parallel(n_jobs=num_cores)(
+                delayed(compute_row)(i) for i in range(bp1.shape[1])))
     end = time.time()
     print(f'Time taken: {end - start:.2f}s')
     if outname is not None:
@@ -289,6 +334,8 @@ optional.add_argument("-hemi", metavar='<str>', choices=['L', 'R'], help="If ROI
 optional.add_argument("-names", metavar='<str>', nargs=2, help="Names of base and target brains")
 optional.add_argument("-tract_list", metavar='<list>', help="Comma separated tract list defining the set of tracts to include - these must present in each brain")
 optional.add_argument("-ncores", metavar='<int>', default=1, type=int, help="For JSD, you may specify single-core (default) or multi-core processing")
+optional.add_argument("-version", "--version", action=VersionAction, nargs=0,
+                      help="List the package versions and exit")
 
 argsa = parser.parse_args()
 
@@ -309,7 +356,7 @@ if not os.path.isfile(bpb_path):
     print(f"Blueprint file {bpb_path} not found")
     errflag = 1
 
-for mp in maskaLR_path + maskaLR_path:
+for mp in maskaLR_path + maskbLR_path:
     if not os.path.isfile(mp):
         print(f"Cortical mask file {mp} not found")
         errflag = 1
@@ -430,7 +477,7 @@ if cmode == 'roi_div':
         D = div_singleGO(temp_bpa_roi, temp_bpb, bpb, maskb, outname=foutname, measure=metric)
     elif roi_type == 'img':
         # add a check for whether the ROI is GIFTI (left or right) or NIFTI and then restrict the search accordingly
-        if roi.endswith('.nii.gz'):
+        if roi.endswith(('.nii', '.nii.gz')):
             roi_img = nib.load(roi)
             roi_img = roi_img.get_fdata()
             if np.unique(roi_img).shape[0] > 2:
@@ -469,7 +516,7 @@ if cmode == 'roi_div':
                 temp_bpa_roi = np.mean(temp_bpa_roi[:, roi_img == 1], axis=1)
 
         roi_name = os.path.basename(roi)
-        roi_name = roi_name.replace('.nii.gz', '').replace('.func.gii', '').replace('.shape.gii', '')
+        roi_name = roi_name.replace('.nii.gz', '').replace('.nii', '').replace('.func.gii', '').replace('.shape.gii', '')
         foutname = os.path.join(out, f'{names[0]}_to_{names[1]}_{metric}_{roi_name}.dscalar.nii')
         D = div_singleGO(temp_bpa_roi, temp_bpb, bpb, maskb, outname=foutname, measure=metric)
 elif cmode == 'translate':

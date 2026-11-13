@@ -17,6 +17,42 @@ from fsl.data.cifti import Cifti
 FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
 
+def get_version_text():
+    """Return versions of the installed FSL and XTRACT components."""
+    import json
+    wanted = {'fsl-xtract', 'fsl-xtract_data', 'fsl-ptx2'}
+    lines = []
+    try:
+        with open(os.path.join(FSLDIR, 'etc', 'fslversion')) as version_file:
+            lines.append(f'FSL: {version_file.read().strip()}')
+        packages = {}
+        for metadata_path in glob.glob(os.path.join(FSLDIR, 'conda-meta', '*.json')):
+            with open(metadata_path) as metadata_file:
+                metadata = json.load(metadata_file)
+            if metadata.get('name') in wanted:
+                packages[metadata['name']] = metadata.get('version', 'unknown')
+        if wanted.issubset(packages):
+            lines.extend(f'{name}: {packages[name]}' for name in ('fsl-ptx2', 'fsl-xtract', 'fsl-xtract_data'))
+            return 'Versions:\n' + '\n'.join(lines)
+    except (OSError, ValueError, TypeError):
+        pass
+    result = subprocess.run([os.path.join(FSLbin, 'fslversion'), '-p'], capture_output=True, text=True)
+    if result.returncode != 0:
+        return f'Unable to determine versions: {result.stderr.strip()}'
+    lines = [f'FSL: {line.split(":", 1)[1].strip()}' for line in result.stdout.splitlines()
+             if line.strip().startswith('Version:')]
+    for line in result.stdout.splitlines():
+        fields = line.strip().split()
+        if len(fields) >= 2 and fields[0] in wanted:
+            lines.append(f'{fields[0]}: {fields[1]}')
+    return 'Versions:\n' + '\n'.join(lines)
+
+class VersionAction(argparse.Action):
+    """Resolve package versions only when the version option is requested."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser._print_message(get_version_text() + '\n', sys.stdout)
+        parser.exit()
+
 # normalise blueprint
 def normalise(M):
     D       = np.sum(M,axis=1)
@@ -28,7 +64,7 @@ def normalise(M):
 def load_fdt(fdt_path, norm=True):
     print('Reading tractography matrix. This may take a few minutes...')
     # mat         = pd.read_csv(fdt_path, header=None, dtype={0:np.int32, 1:np.int32, 2:np.float32}, delim_whitespace=True).to_numpy()
-    mat         = pd.read_csv(fdt_path, header=None, dtype={0:np.int32, 1:np.int32, 2:np.float32}, sep='\s+').to_numpy()
+    mat         = pd.read_csv(fdt_path, header=None, dtype={0:np.int32, 1:np.int32, 2:np.float32}, sep=r'\s+').to_numpy()
     data        = mat[:-1, -1]
     rows        = np.array(mat[:-1, 0]-1, dtype=int)
     cols        = np.array(mat[:-1, 1]-1, dtype=int)
@@ -65,6 +101,7 @@ class Usage(Exception):
 
 parser = MyParser(prog='XTRACT Blueprint',
                   description='xtract_blueprint: for generating connectivity blueprints from xtract output',
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog='')
 
 # Compulsory arguments:
@@ -77,6 +114,8 @@ parser.add_argument("-savetxt", action="store_true", default=False, help="save a
 parser.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts prior to blueprint calculation (default = 0.001)")
 # parser.add_argument("-distnorm", action="store_true", default=False, help="distance normalisation?")
 parser.add_argument("-prefix", metavar='<string>', help="prefix for filename")
+parser.add_argument("-version", "--version", action=VersionAction, nargs=0,
+                    help="List the package versions and exit")
 argsa = parser.parse_args()
 
 ######################
@@ -95,8 +134,7 @@ seed_path = argsa.seed_path.split(",")
 tracts = argsa.tracts.split(",")
 ntracts = len(tracts)
 
-if argsa.prefix is None:
-    prefix = ''
+prefix = argsa.prefix or ''
 
 # determine if volume or surface seed: if volume, force savetxt
 # 0 is surface, 1 is volume, 2 is surface plus subcortical
@@ -150,9 +188,10 @@ for idx,t in enumerate(tracts):
         trm.append(int(idx))
 
 # remove missing tract columns
-tracts_mat = np.delete(tracts_mat, [trm], 1)
-for i in trm:
-    tracts.pop(i)
+tracts_mat = np.delete(tracts_mat, trm, axis=1)
+missing_indices = set(trm)
+tracts = [tract for index, tract in enumerate(tracts)
+          if index not in missing_indices]
 
 ntracts = len(tracts)
 

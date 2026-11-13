@@ -25,6 +25,42 @@ FSLDIR = os.getenv('FSLDIR')
 FSLbin = os.path.join(FSLDIR, 'bin')
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
+def get_version_text():
+    """Return versions of the installed FSL and XTRACT components."""
+    import json
+    wanted = {'fsl-xtract', 'fsl-xtract_data', 'fsl-ptx2'}
+    lines = []
+    try:
+        with open(os.path.join(FSLDIR, 'etc', 'fslversion')) as version_file:
+            lines.append(f'FSL: {version_file.read().strip()}')
+        packages = {}
+        for metadata_path in glob.glob(os.path.join(FSLDIR, 'conda-meta', '*.json')):
+            with open(metadata_path) as metadata_file:
+                metadata = json.load(metadata_file)
+            if metadata.get('name') in wanted:
+                packages[metadata['name']] = metadata.get('version', 'unknown')
+        if wanted.issubset(packages):
+            lines.extend(f'{name}: {packages[name]}' for name in ('fsl-ptx2', 'fsl-xtract', 'fsl-xtract_data'))
+            return 'Versions:\n' + '\n'.join(lines)
+    except (OSError, ValueError, TypeError):
+        pass
+    result = subprocess.run([os.path.join(FSLbin, 'fslversion'), '-p'], capture_output=True, text=True)
+    if result.returncode != 0:
+        return f'Unable to determine versions: {result.stderr.strip()}'
+    lines = [f'FSL: {line.split(":", 1)[1].strip()}' for line in result.stdout.splitlines()
+             if line.strip().startswith('Version:')]
+    for line in result.stdout.splitlines():
+        fields = line.strip().split()
+        if len(fields) >= 2 and fields[0] in wanted:
+            lines.append(f'{fields[0]}: {fields[1]}')
+    return 'Versions:\n' + '\n'.join(lines)
+
+class VersionAction(argparse.Action):
+    """Resolve package versions only when the version option is requested."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser._print_message(get_version_text() + '\n', sys.stdout)
+        parser.exit()
+
 # some useful functions
 def errchk(errflag):
     if errflag:
@@ -75,6 +111,8 @@ optional.add_argument("-tract_list", metavar='<list>', help="Comma separated lis
 optional.add_argument("-thr", metavar='<float>', default=0.001, type=float, help="Threshold applied to XTRACT tracts for volume calculation (default = 0.001).")
 optional.add_argument("-n_std", metavar='<float>', default=2, type=float, help="The number of standard deviations (either side of mean) to allow before being flagged as an outlier (default = 2).")
 optional.add_argument("-use_prior", action="store_true", default=False, help="If already run xtract_qc, use previously created metrics (default = create new metrics and overwrite)")
+optional.add_argument("-version", "--version", action=VersionAction, nargs=0,
+                      help="List the package versions and exit")
 argsa = parser.parse_args()
 
 subject_list = argsa.subject_list
@@ -104,7 +142,7 @@ errchk(errflag)
 
 os.makedirs(out, exist_ok=True)
 # get subject information
-subject_list = np.loadtxt(subject_list, dtype='str')
+subject_list = np.loadtxt(subject_list, dtype='str', ndmin=1)
 
 # get tract information
 if argsa.tract_list is not None:
@@ -134,7 +172,7 @@ def get_metrics(sub_path, sub_out, tracts, thr):
         tfile = os.path.join(sub_path, 'tracts', tract, 'densityNorm.nii.gz')
         wayfile = os.path.join(sub_path, 'tracts', tract, 'waytotal')
         # filecheck
-        if imgtest(tfile) is False:
+        if imgtest(tfile) == 0:
             filecheck[nt] = 0
         # if it does exist, get volume
         else:
@@ -149,7 +187,7 @@ def get_metrics(sub_path, sub_out, tracts, thr):
             tract_waytotal[nt] = np.loadtxt(wayfile, dtype=int)    
     # save check to subject directory
     np.savetxt(os.path.join(sub_out, 'filecheck'), filecheck, fmt='%i')
-    np.savetxt(os.path.join(sub_out, 'waytotal'), tract_waytotal, fmt='%i')
+    np.savetxt(os.path.join(sub_out, 'waytotal'), tract_waytotal, fmt='%.18g')
     np.savetxt(os.path.join(sub_out, 'volume'), tract_volume, fmt='%i')
     return filecheck, tract_waytotal, tract_volume
 
@@ -163,7 +201,7 @@ subcheck, filecheck_all, tract_waytotal_all, tract_volume_all = np.ones((nsubs,)
 for ns, sub_path in enumerate(tqdm(subject_list)):
     sub_out = os.path.join(sub_path, 'xtract_qc')
     if os.path.isdir(sub_path) is False:
-        subcheck[ns] = 1
+        subcheck[ns] = 0
         print(f'{sub_path} missing')
     else:
         if argsa.use_prior and os.path.isfile(os.path.join(sub_out, 'filecheck')) and os.path.isfile(os.path.join(sub_out, 'waytotal')) and os.path.isfile(os.path.join(sub_out, 'volume')):
@@ -176,10 +214,20 @@ for ns, sub_path in enumerate(tqdm(subject_list)):
             filecheck_all.loc[ns, :], tract_waytotal_all.loc[ns, :], tract_volume_all.loc[ns, :] = get_metrics(sub_path, sub_out, tracts, thr)
 
 if np.sum(subcheck) < nsubs:
-    print(f'Could not find XTRACT folders for {int(np.sum(subcheck) - nsubs)} subject(s)')
+    missing_count = int(nsubs - np.sum(subcheck))
+    print(f'Could not find XTRACT folders for {missing_count} subject(s)')
     missing_list = os.path.join(out, 'missing_subjects.txt')
-    np.savetxt(missing_list, subject_list[np.argwhere(subcheck == 0)], fmt="%s")
+    np.savetxt(missing_list, subject_list[subcheck == 0], fmt="%s")
     print(f'Excluding from QC\nSee {missing_list} for list')
+
+valid_subjects = subcheck == 1
+subject_list = subject_list[valid_subjects]
+filecheck_all = filecheck_all.loc[valid_subjects].reset_index(drop=True)
+tract_waytotal_all = tract_waytotal_all.loc[valid_subjects].reset_index(drop=True)
+tract_volume_all = tract_volume_all.loc[valid_subjects].reset_index(drop=True)
+nsubs = len(subject_list)
+if nsubs == 0:
+    raise RuntimeError('No valid XTRACT folders remain for QC')
 
 print('Generating report...')
 ##########################################
@@ -190,14 +238,14 @@ sub_missing = np.argwhere(sumcheck < ntracts) # subjects missing data
 
 sub_missing_txt = []
 sub_missing_all_txt = []
-for idx in sub_missing:
+for idx in np.flatnonzero(sumcheck < ntracts):
     sub = subject_list[idx]
     n_missing = int(ntracts - sumcheck[idx])
     if n_missing < ntracts:
         filecheck = np.loadtxt(os.path.join(subject_list[idx], 'xtract_qc', 'filecheck'))
-        sub_missing_txt.append(f'{sub[0]} missing {n_missing} tracts: {[tracts[i[0]] for i in np.argwhere(filecheck == 0)]}')
+        sub_missing_txt.append(f'{sub} missing {n_missing} tracts: {[tracts[i] for i in np.flatnonzero(filecheck == 0)]}')
     elif n_missing == ntracts:
-        sub_missing_all_txt.append(f'{sub[0]} missing all tracts')
+        sub_missing_all_txt.append(f'{sub} missing all tracts')
 
 # get overall success
 sumcheck_all = np.round((np.sum(sumcheck) / (ntracts * nsubs)) * 100, 3) # now overall percent success across subjects and tracts

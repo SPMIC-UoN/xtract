@@ -14,6 +14,42 @@ FSLbin = os.path.join(FSLDIR, 'bin')
 ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_gpu binary
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
+def get_version_text():
+    """Return versions of the installed FSL and XTRACT components."""
+    import json
+    wanted = {'fsl-xtract', 'fsl-xtract_data', 'fsl-ptx2'}
+    lines = []
+    try:
+        with open(os.path.join(FSLDIR, 'etc', 'fslversion')) as version_file:
+            lines.append(f'FSL: {version_file.read().strip()}')
+        packages = {}
+        for metadata_path in glob.glob(os.path.join(FSLDIR, 'conda-meta', '*.json')):
+            with open(metadata_path) as metadata_file:
+                metadata = json.load(metadata_file)
+            if metadata.get('name') in wanted:
+                packages[metadata['name']] = metadata.get('version', 'unknown')
+        if wanted.issubset(packages):
+            lines.extend(f'{name}: {packages[name]}' for name in ('fsl-ptx2', 'fsl-xtract', 'fsl-xtract_data'))
+            return 'Versions:\n' + '\n'.join(lines)
+    except (OSError, ValueError, TypeError):
+        pass
+    result = subprocess.run([os.path.join(FSLbin, 'fslversion'), '-p'], capture_output=True, text=True)
+    if result.returncode != 0:
+        return f'Unable to determine versions: {result.stderr.strip()}'
+    lines = [f'FSL: {line.split(":", 1)[1].strip()}' for line in result.stdout.splitlines()
+             if line.strip().startswith('Version:')]
+    for line in result.stdout.splitlines():
+        fields = line.strip().split()
+        if len(fields) >= 2 and fields[0] in wanted:
+            lines.append(f'{fields[0]}: {fields[1]}')
+    return 'Versions:\n' + '\n'.join(lines)
+
+class VersionAction(argparse.Action):
+    """Resolve package versions only when the version option is requested."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser._print_message(get_version_text() + '\n', sys.stdout)
+        parser.exit()
+
 # some useful functions
 def errchk(errflag):
     if errflag:
@@ -130,7 +166,8 @@ optional.add_argument("-interp", metavar='<str>', choices=['nn', 'tri'], default
 optional.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
 optional.add_argument("-par", action="store_true", default=False, help="If cluster, run in parallel: submit 1 job per tract")
 optional.add_argument("-print_list", dest='print_list', action="store_true", default=False, help="List the tract names used in XTRACT")
-optional.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
+optional.add_argument("-version", "--version", action=VersionAction, nargs=0,
+                      help="List the package versions and exit")
 
 if FSLINFMRIB is not None:
     hidden = parser.add_argument_group('Hidden arguments')
@@ -140,15 +177,6 @@ argsa = parser.parse_args()
 
 if FSLINFMRIB is None:
     argsa.queue = None
-
-# print versions (xtract, xtract_data, ptx2)
-if argsa.version:
-    verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
-    verlist = verlist.stdout.split('\n')
-    verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
-    print('Versions:')
-    verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
-    print('\n')
 
 # rename compulsory arguments for ease
 bpx = argsa.bpx
@@ -303,6 +331,8 @@ print(f'SPECIES: {spec}')
 os.makedirs(out, exist_ok=True)
 os.makedirs(os.path.join(out, 'logs'), exist_ok=True)
 os.makedirs(os.path.join(out, 'tracts'), exist_ok=True)
+with open(os.path.join(out, 'xtract_versions.txt'), 'w') as version_file:
+    version_file.write(get_version_text() + '\n')
 
 if argsa.native and argsa.ref is not False:
     print("You have selected the native space and ref space options")

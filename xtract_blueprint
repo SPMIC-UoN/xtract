@@ -10,6 +10,42 @@ ptxbin_gpu = os.path.join(FSLbin, 'probtrackx2_gpu') # Location of probtrackx2_g
 ptxbin = os.path.join(FSLbin, 'probtrackx2') # Location of probtrackx2 binary
 datadir = os.path.join(FSLDIR, 'data', 'xtract_data') # Location of xtract data
 
+def get_version_text():
+    """Return versions of the installed FSL and XTRACT components."""
+    import json
+    wanted = {'fsl-xtract', 'fsl-xtract_data', 'fsl-ptx2'}
+    lines = []
+    try:
+        with open(os.path.join(FSLDIR, 'etc', 'fslversion')) as version_file:
+            lines.append(f'FSL: {version_file.read().strip()}')
+        packages = {}
+        for metadata_path in glob.glob(os.path.join(FSLDIR, 'conda-meta', '*.json')):
+            with open(metadata_path) as metadata_file:
+                metadata = json.load(metadata_file)
+            if metadata.get('name') in wanted:
+                packages[metadata['name']] = metadata.get('version', 'unknown')
+        if wanted.issubset(packages):
+            lines.extend(f'{name}: {packages[name]}' for name in ('fsl-ptx2', 'fsl-xtract', 'fsl-xtract_data'))
+            return 'Versions:\n' + '\n'.join(lines)
+    except (OSError, ValueError, TypeError):
+        pass
+    result = subprocess.run([os.path.join(FSLbin, 'fslversion'), '-p'], capture_output=True, text=True)
+    if result.returncode != 0:
+        return f'Unable to determine versions: {result.stderr.strip()}'
+    lines = [f'FSL: {line.split(":", 1)[1].strip()}' for line in result.stdout.splitlines()
+             if line.strip().startswith('Version:')]
+    for line in result.stdout.splitlines():
+        fields = line.strip().split()
+        if len(fields) >= 2 and fields[0] in wanted:
+            lines.append(f'{fields[0]}: {fields[1]}')
+    return 'Versions:\n' + '\n'.join(lines)
+
+class VersionAction(argparse.Action):
+    """Resolve package versions only when the version option is requested."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser._print_message(get_version_text() + '\n', sys.stdout)
+        parser.exit()
+
 # some useful functions
 def errchk(errflag):
     if errflag:
@@ -102,7 +138,8 @@ optional.add_argument("-ptx_options", metavar='<options.txt>', default=False, he
 # Optional computing arguments:
 optional.add_argument("-gpu", action="store_true", default=False, help="Use GPU version")
 optional.add_argument("-keepfiles", action="store_true", default=False, help="Do not delete temp files")
-optional.add_argument("-version", dest='version', action="store_true", default=False, help="List the package versions")
+optional.add_argument("-version", "--version", action=VersionAction, nargs=0,
+                      help="List the package versions and exit")
 
 if FSLINFMRIB is not None:
     hidden = parser.add_argument_group('Hidden arguments')
@@ -116,15 +153,6 @@ if FSLINFMRIB is not None:
 
 argsa = parser.parse_args()
 
-# print versions (xtract, xtract_data, ptx2)
-if argsa.version:
-    verlist = subprocess.run([os.path.join(FSLbin, "fslversion"), '-p'], capture_output=True, text=True)
-    verlist = verlist.stdout.split('\n')
-    verlist = [t for t in verlist if 'fsl-xtract' in t or 'ptx2' in t]
-    print('Versions:')
-    verlist = [print(f'{t.split(" - ")[0].replace(" ", "")}: {t.split(" - ")[1].replace(" ", "")}') for t in verlist]
-    print('\n')
-
 # rename arguments for ease
 bpx = argsa.bpx
 out = argsa.out
@@ -136,21 +164,18 @@ stage = argsa.stage
 native = argsa.native
 errflag = 0
 
+cbp_path = os.path.join(FSLbin, "create_blueprint")
+subcort_path = os.path.join(FSLbin, "make_subcort_bp")
+job_wait = None
+
 if FSLINFMRIB is not None:
-    if argsa.dev_create is None:
-        cbp_path = os.path.join(FSLbin, "create_blueprint")
-    else:
+    if argsa.dev_create is not None:
         cbp_path = argsa.dev_create
         print(f'create_blueprint path is: {cbp_path}')
-    if argsa.dev_subcort is None:
-        subcort_path = os.path.join(FSLbin, "make_subcort_bp")
-    else:
+    if argsa.dev_subcort is not None:
         subcort_path = argsa.dev_subcort
         print(f'make_subcort_bp path is: {subcort_path}')
     job_wait = argsa.job_wait
-else:
-    cbp_path = os.path.join(FSLbin, "create_blueprint")
-    job_wait = None
 
 if FSLINFMRIB is None:
     argsa.queue = None
@@ -178,11 +203,11 @@ if imgtest(target) == 0:
     errflag = 1
 
 # check which space we are running tracking in    
-if native is True and argsa.warps[0] is not None:
+if native is True and argsa.warps is not None:
     print("You have selected the native space and ref space options")
     print("Must select EITHER '-native', '-ref <refimage> <diff2ref> <ref2diff>', OR use the default standard space")
     errflag=1
-elif native is False and argsa.warps[0] is not None:
+elif native is False and argsa.warps is not None:
     print("Creating blueprint in standard space")    
     ref = argsa.warps[0]
     xtract2diff = argsa.warps[1]
@@ -197,8 +222,11 @@ elif native is False and argsa.warps[0] is not None:
     if imgtest(diff2xtract) == 0:
         print(f'Warp file {diff2xtract} not found.')
         errflag = 1   
-elif native is True and argsa.warps[0] is None:
+elif native is True:
     print("Creating blueprint in native space")
+else:
+    print("If not using '-native', must set '-warps <ref> <xtract2diff> <diff2xtract>'")
+    errflag = 1
 errchk(errflag)
 
 # check optional arguments
@@ -238,7 +266,7 @@ if argsa.subseed is not None:
         errflag=1    
 if argsa.exclusion is not None:
     exclusion = argsa.exclusion
-    if exclusion == False:
+    if not os.path.isfile(exclusion):
         print(f'Exclusion mask file {exclusion} not found.')
         errflag = 1
 errchk(errflag)
@@ -337,7 +365,7 @@ if stage != 2:
         print(f'\nSeed {COUNTER+1}:')
         print(f'seed {r}', end="")
         
-        if seed is not argsa.subseed:
+        if seed != argsa.subseed:
             working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
             os.makedirs(working_dirs[COUNTER], exist_ok=True)
 
@@ -379,7 +407,7 @@ if stage != 2:
             with open(commands_1, 'a') as f:
                 print(f'{ptxbin} {hemi_opts};', file=f)
         
-        elif seed is argsa.subseed:
+        elif seed == argsa.subseed:
             working_dirs.append(os.path.join(out, 'omatrix2', 'subcortical'))
             os.makedirs(working_dirs[COUNTER], exist_ok=True)
             # call make_subcort_bp
@@ -425,10 +453,10 @@ if stage != 1:
     
     working_dirs = []
     for seed in seeds:
-        if seed is not argsa.subseed:
+        if seed != argsa.subseed:
             r = remove_ext(os.path.basename(seed))
             working_dirs.append(os.path.join(out, 'omatrix2', f'omatrix2_{r}'))
-        elif seed is argsa.subseed:
+        elif seed == argsa.subseed:
             working_dirs.append(os.path.join(out, 'omatrix2', 'subcortical'))
 
     py_args = f' -ptx_folder {",".join(working_dirs)}'

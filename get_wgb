@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 #   Copyright (C) 2020 University of Oxford
 #
@@ -17,6 +18,15 @@ Prepares MNI-space white-grey boundary (WGB) from T1w image (human brain only) r
 EOF
 }
 Splash
+
+get_version_text() {
+    "$FSLDIR/bin/fslversion" -p | awk '
+        /^Version:/ {print "FSL: " $2}
+        $1 == "fsl-xtract" || $1 == "fsl-xtract_data" || $1 == "fsl-ptx2" {
+            print $1 ": " $2
+        }
+    '
+}
 
 Usage() {
     cat << EOF
@@ -40,7 +50,13 @@ EOF
     exit 1
 }
 
-[ "$1" = "" ] && Usage
+[ "${1:-}" = "-version" ] || [ "${1:-}" = "--version" ] && {
+    echo "Versions:"
+    get_version_text
+    exit 0
+}
+
+[ "${1:-}" = "" ] && Usage
 
 # Set default options
 T1=""
@@ -51,7 +67,7 @@ keepcereb=0
 res=2
 
 # Parse command-line arguments
-while [ ! -z "$1" ];do
+while [ -n "${1:-}" ];do
     case "$1" in
 	-T1) T1=$2;shift;;
 	-out) out=$2;shift;;
@@ -76,6 +92,12 @@ if [ "$out" == "" ];then
     echo "Must set compulsory argument '-out'"
     errflag=1
 fi
+
+if [ "$errflag" -ne 0 ]; then
+    exit 1
+fi
+
+mkdir -p "$out"
 
 if (( $(echo "$res < 2" | bc -l) ));then
     echo "Warning: final resolution of WGB is ${res} mm - this is likely to require a lot of memory during xtract_blueprint processing"
