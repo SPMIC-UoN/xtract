@@ -54,12 +54,12 @@ TOOLS = (
             F("-p", "Protocols folder", "Override the standard protocols folder.", "folder"),
             F("-stdref", "Standard reference", "Standard-space reference image.", "file"),
             F("-stdwarp", "Standard warps", "Standard-to-diffusion and diffusion-to-standard warps.", "file", nargs=2,
-              value_labels=("Standard → diffusion", "Diffusion → standard")),
+              value_labels=("Standard to diffusion", "Diffusion to standard")),
             F("-mac_ext", "Macaque template", "Macaque template space.", "choice", choices=("", "F99", "D99", "INIA", "NMT", "YRK")),
             F("-native", "Run in native space", "Run tractography in diffusion space.", "bool"),
             F("-in_native", "Protocols already native", "Protocol masks are already in diffusion space.", "bool"),
             F("-ref", "Reference-space inputs", "Reference image, diff-to-ref and ref-to-diff transforms.", "file", nargs=3,
-              value_labels=("Reference image", "Diffusion → reference", "Reference → diffusion")),
+              value_labels=("Reference image", "Diffusion to reference", "Reference to diffusion")),
             F("-res", "Output resolution (mm)", "Leave blank to retain the protocol resolution.", "float"),
             F("-ptx_options", "ProbtrackX options file", "File overriding ProbtrackX defaults.", "file"),
             F("-interp", "Interpolation", "Protocol ROI interpolation.", "choice", choices=("", "nn", "tri")),
@@ -77,7 +77,7 @@ TOOLS = (
         ),
         (
             F("-warps", "Warp inputs", "Reference, XTRACT-to-diffusion and diffusion-to-XTRACT.", "file", nargs=3,
-              value_labels=("Reference image", "XTRACT → diffusion", "Diffusion → XTRACT")),
+              value_labels=("Reference image", "XTRACT to diffusion", "Diffusion to XTRACT")),
             F("-native", "Run in native space", "Run tractography in diffusion space.", "bool"),
             F("-out", "Output folder", "Defaults to <xtract>/blueprint.", "folder"),
             F("-stage", "Stage", "0: everything, 1: matrix2, 2: blueprint.", "choice", choices=("0", "1", "2"), default="0"),
@@ -120,7 +120,7 @@ TOOLS = (
         ),
         (
             F("-warp", "Warp inputs", "Reference image and XTRACT-to-reference warp.", "file", nargs=2,
-              value_labels=("Reference image", "XTRACT → reference")),
+              value_labels=("Reference image", "XTRACT to reference")),
             F("-out", "Output CSV", "Defaults to <xtract>/stats.csv.", "file"),
             F("-meas", "Measures", "Comma-separated measures.", default="vol,prob,length,FA,MD"),
             F("-tract_list", "Tract list", "Comma-separated tracts."),
@@ -309,6 +309,17 @@ from tkinter.scrolledtext import ScrolledText
 DOCS_URL = "https://fsl.fmrib.ox.ac.uk/fsl/docs/diffusion/xtract.html"
 
 
+def set_supported_cursor(widget, *candidates):
+    """Use the first cursor name supported by the current Tk platform."""
+    for cursor in (*candidates, "arrow"):
+        try:
+            widget.configure(cursor=cursor)
+            return cursor
+        except tk.TclError:
+            continue
+    return None
+
+
 def open_with_default_app(path: Path) -> None:
     """Open a file/folder with the desktop's registered default application."""
     path = path.expanduser().resolve()
@@ -354,7 +365,8 @@ class FieldRow:
             label_box.grid(row=row, column=0, sticky="nw", padx=(10, 12), pady=7)
             label_widget = ttk.Label(label_box, text=label)
             label_widget.pack(side="left")
-            help_widget = ttk.Label(label_box, text="  ⓘ", style="Help.TLabel", cursor="question_arrow")
+            help_widget = ttk.Label(label_box, text="  [?]", style="Help.TLabel")
+            set_supported_cursor(help_widget, "question_arrow", "help")
             help_widget.pack(side="left")
             ToolTip(label_widget, self.help_text)
             ToolTip(help_widget, self.help_text)
@@ -377,7 +389,7 @@ class FieldRow:
                     entry.grid(row=index, column=1, sticky="ew", pady=2)
                     self.widgets.append(entry)
                     if field.kind in ("file", "folder"):
-                        ttk.Button(inputs, text="Select…", command=lambda i=index: self._browse(i), width=9).grid(
+                        ttk.Button(inputs, text="Select...", command=lambda i=index: self._browse(i), width=9).grid(
                             row=index, column=2, padx=(6, 8), pady=2)
         for widget in self.widgets:
             widget.configure(takefocus=True)
@@ -438,7 +450,7 @@ class ToolPanel(ttk.Frame):
         header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         header.columnconfigure(0, weight=1)
         ttk.Label(header, text=tool.title, style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Button(header, text="Open guide ↗", command=lambda: webbrowser.open(DOCS_URL)).grid(row=0, column=1, sticky="e")
+        ttk.Button(header, text="Open guide", command=lambda: webbrowser.open(DOCS_URL)).grid(row=0, column=1, sticky="e")
         ttk.Label(header, text=tool.summary, style="Summary.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
         required = ttk.LabelFrame(self, text="Required inputs", padding=(4, 6))
@@ -503,7 +515,7 @@ class ToolPanel(ttk.Frame):
             text = display_command(command)
             self.status.configure(text="Ready to run")
         except ValidationError as error:
-            text = self.tool.command + "  —  " + str(error)
+            text = self.tool.command + "  -  " + str(error)
             self.status.configure(text=str(error))
         self.preview.configure(state="normal")
         self.preview.delete("1.0", "end")
@@ -653,11 +665,11 @@ class XtractApp(tk.Tk):
         intro.columnconfigure(0, weight=1)
         ttk.Label(
             intro,
-            text=(r" __  _______ ____      _    ____ _____" "\n"
-                  r" \ / /_   _|  _ \    / \  / ___|_   _|" "\n"
-                  r"  \  /  | | | |_) |  / _ \| |     | |" "\n"
-                  r"  /  \  | | |  _ <  / ___ \ |___  | |" "\n"
-                  r" /_/\_\ |_| |_| \_\/_/   \_\____| |_|"),
+            text=("#   # ##### ####   ###   #### #####\n"
+                  " # #    #   #   # #   # #      #\n"
+                  "  #     #   ####  ##### #      #\n"
+                  " # #    #   #  #  #   # #      #\n"
+                  "#   #   #   #   # #   #  ####  #"),
             style="Ascii.TLabel", justify="left",
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
@@ -680,18 +692,19 @@ class XtractApp(tk.Tk):
         ).grid(row=0, column=0, sticky="w")
         ttk.Label(
             intro,
-            text="Choose a tool from the tabs above. Required inputs are shown first; hover over ⓘ for full option guidance.",
+            text="Choose a tool from the tabs above. Required inputs are shown first; hover over [?] for full option guidance.",
             style="IntroHint.TLabel", wraplength=760, justify="left",
         ).grid(row=3, column=0, sticky="w", pady=(8, 6))
-        ttk.Button(intro, text="Open XTRACT guide ↗", command=lambda: webbrowser.open(DOCS_URL)).grid(row=4, column=0, sticky="w")
+        ttk.Button(intro, text="Open XTRACT guide", command=lambda: webbrowser.open(DOCS_URL)).grid(row=4, column=0, sticky="w")
         references = ttk.LabelFrame(intro, text="Manuscript references", padding=(12, 7))
         references.grid(row=5, column=0, sticky="ew", pady=(8, 0))
         references.columnconfigure(0, weight=1, uniform="references")
         references.columnconfigure(1, weight=1, uniform="references")
 
         def reference_link(parent, row, text, url):
-            link = ttk.Label(parent, text=text, style="Link.TLabel", cursor="pointinghand",
+            link = ttk.Label(parent, text=text, style="Link.TLabel",
                              wraplength=360, justify="left")
+            set_supported_cursor(link, "hand2", "pointinghand", "hand")
             link.grid(row=row, column=0, sticky="nw", pady=(1, 3))
             link.bind("<Button-1>", lambda _event, target=url: webbrowser.open(target))
             ToolTip(link, f"Open manuscript page\n{url}")
@@ -702,11 +715,11 @@ class XtractApp(tk.Tk):
         ttk.Label(xtract_refs, text="XTRACT", style="ReferenceHeading.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(xtract_refs, text="If you use XTRACT in your research, please cite the following articles:",
                   style="Reference.TLabel", wraplength=360, justify="left").grid(row=1, column=0, sticky="w", pady=(3, 3))
-        reference_link(xtract_refs, 2, "Warrington et al. (2020) — XTRACT: standardised protocols for automated tractography and connectivity blueprints",
+        reference_link(xtract_refs, 2, "Warrington et al. (2020) - XTRACT: standardised protocols for automated tractography and connectivity blueprints",
                        "https://doi.org/10.1016/j.neuroimage.2020.116923")
-        reference_link(xtract_refs, 3, "Warrington et al. (2022) — Concurrent mapping of brain ontogeny and phylogeny within a common space",
+        reference_link(xtract_refs, 3, "Warrington et al. (2022) - Concurrent mapping of brain ontogeny and phylogeny within a common space",
                        "https://doi.org/10.1126/sciadv.abq2022")
-        reference_link(xtract_refs, 4, "de Groot et al. (2013) — Improving alignment in tract-based spatial statistics",
+        reference_link(xtract_refs, 4, "de Groot et al. (2013) - Improving alignment in tract-based spatial statistics",
                        "https://doi.org/10.1016/j.neuroimage.2013.03.015")
 
         protocol_refs = ttk.Frame(xtract_refs)
@@ -714,11 +727,11 @@ class XtractApp(tk.Tk):
         protocol_refs.columnconfigure(0, weight=1)
         ttk.Label(protocol_refs, text="If you use the macaque protocols, please also cite:",
                   style="Reference.TLabel", wraplength=360, justify="left").grid(row=0, column=0, sticky="w")
-        reference_link(protocol_refs, 1, "Assimopoulos et al. (2024) — Generalising XTRACT protocols across macaque templates",
+        reference_link(protocol_refs, 1, "Assimopoulos et al. (2024) - Generalising XTRACT protocols across macaque templates",
                        "https://doi.org/10.1007/s00429-024-02760-0")
         ttk.Label(protocol_refs, text="If you use the extended cortico-subcortical protocols, please also cite:",
                   style="Reference.TLabel", wraplength=360, justify="left").grid(row=2, column=0, sticky="w", pady=(3, 0))
-        reference_link(protocol_refs, 3, "Assimopoulos et al. (2025) — Cross-species standardised cortico-subcortical tractography",
+        reference_link(protocol_refs, 3, "Assimopoulos et al. (2025) - Cross-species standardised cortico-subcortical tractography",
                        "https://doi.org/10.7554/eLife.107012")
 
         blueprint_refs = ttk.Frame(references)
@@ -727,11 +740,11 @@ class XtractApp(tk.Tk):
         ttk.Label(blueprint_refs, text="Blueprint & Divergence", style="ReferenceHeading.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(blueprint_refs, text="If you use XTRACT Blueprint or XTRACT Divergence in your research, please cite:",
                   style="Reference.TLabel", wraplength=360, justify="left").grid(row=1, column=0, sticky="w", pady=(3, 3))
-        reference_link(blueprint_refs, 2, "Mars et al. (2018) — Whole-brain comparative anatomy using connectivity blueprints",
+        reference_link(blueprint_refs, 2, "Mars et al. (2018) - Whole-brain comparative anatomy using connectivity blueprints",
                        "https://doi.org/10.7554/eLife.35237")
-        reference_link(blueprint_refs, 3, "Warrington et al. (2020) — XTRACT: standardised protocols for automated tractography and connectivity blueprints",
+        reference_link(blueprint_refs, 3, "Warrington et al. (2020) - XTRACT: standardised protocols for automated tractography and connectivity blueprints",
                        "https://doi.org/10.1016/j.neuroimage.2020.116923")
-        reference_link(blueprint_refs, 4, "Warrington et al. (2022) — Concurrent mapping of brain ontogeny and phylogeny within a common space",
+        reference_link(blueprint_refs, 4, "Warrington et al. (2022) - Concurrent mapping of brain ontogeny and phylogeny within a common space",
                        "https://doi.org/10.1126/sciadv.abq2022")
         self.notebook.add(intro, text="Introduction")
 
@@ -769,7 +782,6 @@ class XtractApp(tk.Tk):
         region.bind("<Leave>", unbind, add=True)
 
     def _centre_window(self):
-        self.update_idletasks()
         width = min(980, max(820, self.winfo_screenwidth() - 100))
         height = min(860, max(680, self.winfo_screenheight() - 100))
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -837,8 +849,7 @@ class XtractApp(tk.Tk):
     def _update_theme_button(self):
         if hasattr(self, "theme_button"):
             next_theme = "Light" if self.theme_choice.get() == "Dark" else "Dark"
-            symbol = "☀" if next_theme == "Light" else "☾"
-            self.theme_button.configure(text=f"{symbol} {next_theme}")
+            self.theme_button.configure(text=next_theme)
 
     def _toggle_theme(self):
         self.theme_choice.set("Dark" if self.theme_choice.get() == "Light" else "Light")
@@ -904,7 +915,7 @@ class XtractApp(tk.Tk):
         if self.process and self.process.poll() is None:
             try:
                 os.killpg(self.process.pid, signal.SIGTERM)
-                self.log("\nStopping process…\n")
+                self.log("\nStopping process...\n")
             except ProcessLookupError:
                 pass
 
